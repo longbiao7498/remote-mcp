@@ -98,3 +98,37 @@ def test_write_special_chars(conn):
     sftp = conn.get_sftp()
     with sftp.file("/tmp/rmcp-w-special.txt", "r") as f:
         assert f.read().decode() == raw
+
+
+from remote_mcp.tools import edit as edit_tool
+
+
+def test_edit_unique_match(conn):
+    write_tool.write(conn, "/tmp/rmcp-edit-1.txt", "alpha\nbeta\ngamma\n")
+    out = edit_tool.edit(conn, "/tmp/rmcp-edit-1.txt", "beta", "BETA")
+    assert "Successfully edited" in out
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-edit-1.txt", "r") as f:
+        assert f.read().decode() == "alpha\nBETA\ngamma\n"
+
+
+def test_edit_zero_matches(conn):
+    write_tool.write(conn, "/tmp/rmcp-edit-2.txt", "alpha\nbeta\n")
+    out = edit_tool.edit(conn, "/tmp/rmcp-edit-2.txt", "missing_string", "X")
+    assert out == "Error: old_string not found in /tmp/rmcp-edit-2.txt"
+
+
+def test_edit_multiple_matches(conn):
+    write_tool.write(conn, "/tmp/rmcp-edit-3.txt", "foo\nfoo\nfoo\n")
+    out = edit_tool.edit(conn, "/tmp/rmcp-edit-3.txt", "foo", "bar")
+    assert "old_string found 3 times" in out
+    assert "/tmp/rmcp-edit-3.txt" in out
+    # File unchanged
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-edit-3.txt", "r") as f:
+        assert f.read().decode() == "foo\nfoo\nfoo\n"
+
+
+def test_edit_file_not_found(conn):
+    out = edit_tool.edit(conn, "/tmp/rmcp-edit-nope-xyz", "a", "b")
+    assert out.startswith("Error: File not found:")
