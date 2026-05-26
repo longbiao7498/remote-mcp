@@ -87,6 +87,33 @@ class SSHConnection:
             self._sftp = self._client.open_sftp()
         return self._sftp
 
+    def check_and_clear_reconnect_flag(self) -> bool:
+        flag = self._reconnected
+        self._reconnected = False
+        return flag
+
+    def _do_reconnect(self) -> None:
+        """Tear down (if needed) and rebuild. Sets _reconnected=True on success."""
+        self.close()
+        self.connect()
+        # Note: any persistent BashSession is now invalid; whoever holds it
+        # must re-create. See bash_session integration in Task 2.5.
+        self._reconnected = True
+
+    def exec_with_retry(self, command: str, timeout: float = 30.0) -> ExecResult:
+        """exec() with one-shot auto-reconnect on SSH-level failure."""
+        try:
+            return self.exec(command, timeout=timeout)
+        except (paramiko.SSHException, EOFError, OSError) as e:
+            try:
+                self._do_reconnect()
+            except Exception as e2:
+                raise ConnectionError(
+                    f"SSH connection to {self.config.name} lost and reconnect "
+                    f"failed: {e2}"
+                ) from e
+            return self.exec(command, timeout=timeout)
+
     def close(self) -> None:
         if self._sftp is not None:
             try:

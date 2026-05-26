@@ -126,3 +126,33 @@ def test_get_sftp_returns_same_instance(host_config):
 def test_connect_via_jump_host(sshd_container, ssh_key):
     """ProxyJump verification — skipped, see decorator."""
     pass
+
+
+def test_reconnect_flag_initially_false(host_config):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        assert conn.check_and_clear_reconnect_flag() is False
+    finally:
+        conn.close()
+
+
+def test_exec_with_retry_recovers_after_disconnect(host_config, sshd_kill_and_restart):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        # First call: succeeds
+        assert conn.exec_with_retry("echo first").stdout.strip() == "first"
+        assert conn.check_and_clear_reconnect_flag() is False
+
+        # Force-close the underlying TCP socket; next op must trigger reconnect
+        sshd_kill_and_restart(conn)
+        result = conn.exec_with_retry("echo second")
+        assert result.stdout.strip() == "second"
+
+        # Reconnect flag was set; check_and_clear consumes it
+        assert conn.check_and_clear_reconnect_flag() is True
+        # Second check: cleared
+        assert conn.check_and_clear_reconnect_flag() is False
+    finally:
+        conn.close()
