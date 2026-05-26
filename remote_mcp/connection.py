@@ -46,6 +46,16 @@ class SSHConnection:
         if self.config.keepalive_interval > 0:
             self._transport.set_keepalive(self.config.keepalive_interval)
 
+    def exec(self, command: str, timeout: float = 30.0) -> ExecResult:
+        """One-shot exec. Opens a new channel, runs cmd, closes."""
+        if self._client is None:
+            raise RuntimeError("SSHConnection not connected; call connect() first")
+        stdin, stdout, stderr = self._client.exec_command(command, timeout=timeout)
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
+        return ExecResult(stdout=out, stderr=err, exit_code=exit_code)
+
     def close(self) -> None:
         if self._client is not None:
             try:

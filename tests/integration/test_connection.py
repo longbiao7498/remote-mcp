@@ -54,3 +54,37 @@ def test_close_releases_transport(host_config):
     conn.connect()
     conn.close()
     assert conn._transport is None or not conn._transport.is_active()
+
+
+def test_exec_echo_hello(host_config):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        result = conn.exec("echo hello")
+        assert result.stdout == "hello\n"
+        assert result.exit_code == 0
+        assert result.stderr == ""
+    finally:
+        conn.close()
+
+
+def test_exec_nonzero_exit(host_config):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        result = conn.exec("cat /nonexistent/file")
+        assert result.exit_code != 0
+        assert "No such file" in result.stderr or "No such" in result.stderr
+    finally:
+        conn.close()
+
+
+def test_exec_captures_stderr_separately(host_config):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        result = conn.exec("echo to_stdout; echo to_stderr >&2")
+        assert "to_stdout" in result.stdout
+        assert "to_stderr" in result.stderr
+    finally:
+        conn.close()
