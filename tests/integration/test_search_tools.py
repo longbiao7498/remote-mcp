@@ -45,3 +45,49 @@ def test_glob_path_segment(conn):
 def test_glob_no_matches(conn):
     out = glob_mod.glob_tool(conn, "*.nonexistent", "/tmp/rmcp-glob-test")
     assert out == "No files found matching pattern"
+
+
+from remote_mcp.tools import grep as grep_tool
+
+
+@pytest.fixture
+def grep_conn(conn):
+    # Use the same setup as glob, plus content files
+    conn.exec("rm -rf /tmp/rmcp-grep-test && mkdir -p /tmp/rmcp-grep-test")
+    write_tool.write(conn, "/tmp/rmcp-grep-test/a.py",
+                     "import os\n\ndef foo():\n    return 42\n")
+    write_tool.write(conn, "/tmp/rmcp-grep-test/b.py",
+                     "import sys\n\ndef bar():\n    return foo()\n")
+    write_tool.write(conn, "/tmp/rmcp-grep-test/c.txt",
+                     "FOO is a value\nfoo is something\n")
+    return conn
+
+
+def test_grep_basic(grep_conn):
+    out = grep_tool.grep_tool(grep_conn, "foo", "/tmp/rmcp-grep-test")
+    # Default is content mode, returns path:lineno:line
+    assert "a.py" in out
+    assert "def foo" in out
+    assert ":3:" in out  # foo defined on line 3
+
+
+def test_grep_no_match(grep_conn):
+    out = grep_tool.grep_tool(grep_conn, "nonexistent_keyword_xyz", "/tmp/rmcp-grep-test")
+    assert out == "No matches found"
+
+
+def test_grep_case_insensitive(grep_conn):
+    out = grep_tool.grep_tool(
+        grep_conn, "foo", "/tmp/rmcp-grep-test", case_insensitive=True
+    )
+    assert "FOO is a value" in out
+    assert "foo is something" in out
+
+
+def test_grep_include_filter(grep_conn):
+    out = grep_tool.grep_tool(
+        grep_conn, "foo", "/tmp/rmcp-grep-test", include="*.py"
+    )
+    assert "a.py" in out
+    assert "b.py" in out
+    assert "c.txt" not in out
