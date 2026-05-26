@@ -12,6 +12,25 @@ import paramiko
 from .config import HostConfig
 
 
+_SENTINEL_RE = re.compile(
+    r"^RMCP_SENTINEL_([a-zA-Z0-9]+)_EXIT_(\d+)_CWD_(.*)$"
+)
+
+
+def parse_sentinel_line(line: str, expected_uuid: str):
+    """
+    If `line` is a sentinel matching expected_uuid, return (exit_code, cwd).
+    Otherwise return None.
+    """
+    m = _SENTINEL_RE.match(line.rstrip("\n"))
+    if not m:
+        return None
+    uuid_in_line, exit_str, cwd = m.groups()
+    if uuid_in_line != expected_uuid:
+        return None
+    return int(exit_str), cwd
+
+
 _INIT_SEQUENCE = (
     "set +m\n"
     "set +o histexpand\n"
