@@ -3,6 +3,7 @@ import pytest
 from remote_mcp.config import HostConfig
 from remote_mcp.connection import SSHConnection
 from remote_mcp.tools import read as read_tool
+from remote_mcp.tools import write as write_tool
 
 
 @pytest.fixture
@@ -68,3 +69,32 @@ def test_read_size_cap(conn, monkeypatch):
     out = read_tool.read(conn, "/tmp/rmcp-test-big.txt")
     assert len(out) <= cap + 200   # plus truncation message
     assert "[truncated to" in out
+
+
+def test_write_creates_file(conn):
+    out = write_tool.write(conn, "/tmp/rmcp-write-test.txt", "hello world\n")
+    assert out.startswith("Successfully wrote")
+    # Verify
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-write-test.txt", "r") as f:
+        assert f.read().decode() == "hello world\n"
+
+
+def test_write_creates_parent_dirs(conn):
+    path = "/tmp/rmcp-w-test/nested/sub/file.txt"
+    # Clean up first if exists
+    conn.exec(f"rm -rf /tmp/rmcp-w-test")
+    out = write_tool.write(conn, path, "deep\n")
+    assert "Successfully wrote" in out
+    # Verify
+    sftp = conn.get_sftp()
+    with sftp.file(path, "r") as f:
+        assert f.read().decode() == "deep\n"
+
+
+def test_write_special_chars(conn):
+    raw = "it's a $VAR with \"quotes\" and \\backslash\nplus newline"
+    write_tool.write(conn, "/tmp/rmcp-w-special.txt", raw)
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-w-special.txt", "r") as f:
+        assert f.read().decode() == raw
