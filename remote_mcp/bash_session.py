@@ -23,7 +23,7 @@ def parse_sentinel_line(line: str, expected_uuid: str):
     If `line` is a sentinel matching expected_uuid, return (exit_code, cwd).
     Otherwise return None.
     """
-    m = _SENTINEL_RE.match(line.rstrip("\n"))
+    m = _SENTINEL_RE.match(line.rstrip("\r\n"))
     if not m:
         return None
     uuid_in_line, exit_str, cwd = m.groups()
@@ -33,6 +33,7 @@ def parse_sentinel_line(line: str, expected_uuid: str):
 
 
 _INIT_SEQUENCE = (
+    "stty -echo\n"
     "set +m\n"
     "set +o histexpand\n"
     "export PS1=''\n"
@@ -59,6 +60,9 @@ class BashSession:
 
     def start(self) -> None:
         ch = self._transport.open_session()
+        # Allocate a PTY so that \x03 (Ctrl-C) is delivered as SIGINT to the
+        # foreground process rather than being a literal byte on stdin.
+        ch.get_pty(term="dumb")
         # Critical: combine stderr+stdout BEFORE bash starts (paramiko-side)
         ch.set_combine_stderr(True)
         ch.exec_command("bash --norc --noprofile")
