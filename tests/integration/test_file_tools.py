@@ -132,3 +132,29 @@ def test_edit_multiple_matches(conn):
 def test_edit_file_not_found(conn):
     out = edit_tool.edit(conn, "/tmp/rmcp-edit-nope-xyz", "a", "b")
     assert out.startswith("Error: File not found:")
+
+
+from remote_mcp.tools import multi_edit as me_tool
+
+
+def test_multi_edit_atomic_on_remote(conn):
+    write_tool.write(conn, "/tmp/rmcp-me-1.txt", "alpha\nbeta\ngamma\n")
+    out = me_tool.multi_edit(conn, "/tmp/rmcp-me-1.txt", [
+        {"old_string": "alpha", "new_string": "A"},
+        {"old_string": "gamma", "new_string": "G"},
+    ])
+    assert "Successfully applied 2 edits" in out
+    sftp = conn.get_sftp()
+    assert sftp.file("/tmp/rmcp-me-1.txt", "r").read().decode() == "A\nbeta\nG\n"
+
+
+def test_multi_edit_failure_does_not_modify_file(conn):
+    write_tool.write(conn, "/tmp/rmcp-me-2.txt", "alpha\nbeta\n")
+    out = me_tool.multi_edit(conn, "/tmp/rmcp-me-2.txt", [
+        {"old_string": "alpha", "new_string": "A"},
+        {"old_string": "nope", "new_string": "X"},  # fails
+    ])
+    assert out.startswith("Error:")
+    # File must be unchanged
+    sftp = conn.get_sftp()
+    assert sftp.file("/tmp/rmcp-me-2.txt", "r").read().decode() == "alpha\nbeta\n"
