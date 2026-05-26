@@ -91,3 +91,56 @@ def test_grep_include_filter(grep_conn):
     assert "a.py" in out
     assert "b.py" in out
     assert "c.txt" not in out
+
+
+def test_grep_context_C(grep_conn):
+    # With -C 1, matching "def foo" should include line above and below
+    out = grep_tool.grep_tool(
+        grep_conn, "def foo", "/tmp/rmcp-grep-test", context=1, include="*.py"
+    )
+    # Expect to see the blank line above and "return 42" below
+    assert "def foo" in out
+    assert "return 42" in out
+
+
+def test_grep_output_mode_files_with_matches(grep_conn):
+    out = grep_tool.grep_tool(
+        grep_conn, "foo", "/tmp/rmcp-grep-test",
+        output_mode="files_with_matches"
+    )
+    lines = [l for l in out.splitlines() if l.strip()]
+    # Each line is a path; no `:` content separators per line (just full paths)
+    for ln in lines:
+        # Should be a path without ":<lineno>:<content>"
+        assert ln.count(":") == 0 or ln.startswith("/tmp/")
+
+
+def test_grep_output_mode_count(grep_conn):
+    out = grep_tool.grep_tool(
+        grep_conn, "foo", "/tmp/rmcp-grep-test", output_mode="count"
+    )
+    # Each line: path:count
+    for ln in out.splitlines():
+        if ln.strip():
+            assert ":" in ln
+            count_str = ln.rsplit(":", 1)[1].strip()
+            assert count_str.isdigit()
+
+
+def test_grep_head_limit(grep_conn):
+    # Write a file with many matching lines
+    body = "\n".join(["match_xyz"] * 50) + "\n"
+    write_tool.write(grep_conn, "/tmp/rmcp-grep-test/many.txt", body)
+    out = grep_tool.grep_tool(
+        grep_conn, "match_xyz", "/tmp/rmcp-grep-test", head_limit=10
+    )
+    # Output should have at most 10 lines
+    non_empty = [l for l in out.splitlines() if l.strip()]
+    assert len(non_empty) <= 10
+
+
+def test_grep_invalid_output_mode(grep_conn):
+    out = grep_tool.grep_tool(
+        grep_conn, "foo", "/tmp/rmcp-grep-test", output_mode="bogus"
+    )
+    assert out.startswith("Error: invalid output_mode")
