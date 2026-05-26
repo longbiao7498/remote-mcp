@@ -1,6 +1,7 @@
 """Persistent bash session with sentinel protocol. See spec §5.2."""
 import queue
 import re
+import socket
 import threading
 import time
 import uuid
@@ -84,22 +85,27 @@ class BashSession:
     def _start_reader(self) -> None:
         def reader():
             buf = b""
+            # Set recv timeout to 0.01s so we don't block indefinitely
+            self._channel.settimeout(0.01)
             while not self._stop_reader.is_set():
                 if self._channel is None or self._channel.closed:
                     break
                 try:
-                    if self._channel.recv_ready():
+                    # Try to receive data with a short timeout
+                    # This is better than recv_ready() which might not work reliably with SSH channels
+                    try:
                         data = self._channel.recv(4096)
                         if not data:
+                            # EOF from remote
                             break
                         buf += data
                         # Split on \n, queue complete lines
                         while b"\n" in buf:
                             line, buf = buf.split(b"\n", 1)
                             self._output_queue.put(line + b"\n")
-                    else:
-                        # Short sleep to avoid spinning
-                        self._stop_reader.wait(0.01)
+                    except socket.timeout:
+                        # No data available, loop continues
+                        pass
                 except Exception:
                     break
             # Flush any remaining buffer
@@ -117,6 +123,8 @@ class BashSession:
         """
         if self._channel is None or self._channel.closed:
             raise RuntimeError("BashSession not started or channel closed")
+        if self._reader is None or not self._reader.is_alive():
+            raise RuntimeError("Reader thread is not alive")
         if timeout is None:
             timeout = float(self.config.bash_timeout_default)
 
@@ -141,11 +149,23 @@ class BashSession:
         while True:
             remaining = deadline - time.time()
             if remaining <= 0:
-                # Send Ctrl-C; raise; session survives
+                # Timeout: send Ctrl-C to interrupt the command
+                # Bash should continue executing the remaining sentinel commands
                 try:
                     self._channel.sendall(b"\x03")
                 except Exception:
                     pass
+
+                # Give bash a moment to process the Ctrl-C and execute the remaining sentinel lines
+                time.sleep(0.1)
+
+                # Clear any output from the timed-out command from the queue
+                while not self._output_queue.empty():
+                    try:
+                        self._output_queue.get_nowait()
+                    except queue.Empty:
+                        break
+
                 raise TimeoutError(f"Command timed out after {timeout}s")
             try:
                 line_bytes = self._output_queue.get(timeout=min(remaining, 0.5))

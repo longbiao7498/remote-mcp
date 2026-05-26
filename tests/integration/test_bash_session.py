@@ -69,3 +69,20 @@ def test_execute_captures_cwd_change_in_same_command(session):
     result = session.execute("cd /var && pwd")
     assert result.output.strip() == "/var"
     assert session.current_cwd() == "/var"
+
+
+def test_execute_timeout_raises_and_session_survives(session):
+    with pytest.raises(TimeoutError):
+        session.execute("sleep 100", timeout=2)
+    # Session should still be usable; sleep was Ctrl-C'd
+    result = session.execute("echo recovered")
+    assert "recovered" in result.output
+
+
+def test_current_cwd_unchanged_on_timeout(session):
+    session.execute("cd /tmp")
+    pre_cwd = session.current_cwd()
+    with pytest.raises(TimeoutError):
+        session.execute("sleep 100", timeout=2)
+    # cwd cached value should still reflect /tmp
+    assert session.current_cwd() == pre_cwd
