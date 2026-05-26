@@ -41,7 +41,8 @@ class SSHConnection:
                 "timeout": self.jump_config.connect_timeout,
             }
             if self.jump_config.key_path:
-                j_kwargs["key_filename"] = self.jump_config.key_path
+                import os
+                j_kwargs["key_filename"] = os.path.expanduser(self.jump_config.key_path)
             self._jump_client.connect(**j_kwargs)
             sock = self._jump_client.get_transport().open_channel(
                 "direct-tcpip",
@@ -61,7 +62,8 @@ class SSHConnection:
         if sock is not None:
             connect_kwargs["sock"] = sock
         if self.config.key_path:
-            connect_kwargs["key_filename"] = self.config.key_path
+            import os
+            connect_kwargs["key_filename"] = os.path.expanduser(self.config.key_path)
         if self.config.password:
             connect_kwargs["password"] = self.config.password
         client.connect(**connect_kwargs)
