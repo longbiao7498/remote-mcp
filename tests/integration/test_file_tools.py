@@ -200,3 +200,42 @@ def test_multi_edit_failure_does_not_modify_file(conn):
     # File must be unchanged
     sftp = conn.get_sftp()
     assert sftp.file("/tmp/rmcp-me-2.txt", "r").read().decode() == "alpha\nbeta\n"
+
+
+from remote_mcp.tools import file_stat as fs_tool
+
+
+def test_file_stat_existing_file(conn):
+    write_tool.write(conn, "/tmp/rmcp-fs-1.txt", "abc")
+    out = fs_tool.file_stat(conn, "/tmp/rmcp-fs-1.txt")
+    assert "exists=true" in out
+    assert "type=file" in out
+    assert "size=3" in out
+    assert "mtime=" in out
+
+
+def test_file_stat_missing(conn):
+    out = fs_tool.file_stat(conn, "/tmp/rmcp-fs-does-not-exist-xyz")
+    assert out == "/tmp/rmcp-fs-does-not-exist-xyz: exists=false"
+
+
+def test_file_stat_directory(conn):
+    conn.exec("mkdir -p /tmp/rmcp-fs-dir")
+    out = fs_tool.file_stat(conn, "/tmp/rmcp-fs-dir")
+    assert "exists=true" in out
+    assert "type=dir" in out
+
+
+def test_file_stat_list_input(conn):
+    write_tool.write(conn, "/tmp/rmcp-fs-list-a.txt", "a")
+    write_tool.write(conn, "/tmp/rmcp-fs-list-b.txt", "bb")
+    out = fs_tool.file_stat(conn, [
+        "/tmp/rmcp-fs-list-a.txt",
+        "/tmp/rmcp-fs-list-b.txt",
+        "/tmp/rmcp-fs-nope",
+    ])
+    lines = out.splitlines()
+    assert len(lines) == 3
+    assert "size=1" in lines[0]
+    assert "size=2" in lines[1]
+    assert lines[2].endswith("exists=false")
