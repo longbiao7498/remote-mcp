@@ -116,6 +116,44 @@ class SSHConnection:
 
 **SSH 压缩**：`SSHClient.connect(..., compress=True)`。对文本传输（源码/配置/日志）通常 3-10× 压缩，CPU 开销可忽略。**这是 v2 相对 v1 的关键改动之一**。
 
+#### 5.1.1 连接生命周期与持久化（重要）
+
+整个设计的"持久"是分层的，理解这一层之前，先理解最底下的**进程模型**：
+
+**进程模型**：每个 `claude mcp add` 注册的 remote-mcp server 是一个**长生命 OS 进程**。Claude Code 启动后 spawn 该进程，进程在**整个 Claude Code 会话期间不退出**——不是 per-tool-call 起一个新进程。Claude Code 关闭 → stdio 关闭 → MCP server 收到 EOF → `main()` 的 `try/finally` 退出 → 调 `conn.close()`。
+
+**SSH 连接持久化**：
+
+`main()` 在进程启动时调一次 `conn.connect()`，建立一个 paramiko `Transport`——本质是一个 TCP socket 上承载的 SSH 会话状态。这个 Transport **在整个进程生命周期内常驻**，所有工具调用复用它。
+
+**Transport 上的多路复用**——单 Transport 叠开多种 channel：
+
+| Channel 用途 | 生命周期 | 实现 |
+|------------|---------|------|
+| 持久 bash session | 与 Transport 同生命（直到重连） | `BashSession`，§5.2 |
+| SFTP client | 懒初始化后复用 | `get_sftp()` 缓存单例 |
+| 单次 `exec()` | 每次新开、用完关闭 | Glob/Grep/MultiRead/Read sed 切片各调各的 |
+
+**keepalive**：`transport.set_keepalive(30)` 每 30 秒在 SSH 协议层发心跳——产生少量流量，**防止 VPN / 防火墙因空闲超时切 TCP**。`keepalive_interval` 配置项可调，应小于 VPN 的空闲超时阈值。
+
+**持久化分层一览**：
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  MCP server OS 进程    （per host，整个 Claude Code 会话）│
+│  ┌────────────────────────────────────────────────┐    │
+│  │  paramiko Transport（TCP+SSH 会话状态）         │    │
+│  │  ┌──────────────┐  ┌─────────────┐ ┌─────────┐ │    │
+│  │  │ bash channel │  │ SFTP client │ │ exec ×N │ │    │
+│  │  │（常驻）       │  │（懒初始化）  │ │（每次）  │ │    │
+│  │  └──────────────┘  └─────────────┘ └─────────┘ │    │
+│  └────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────┘
+   │ disconnect / reconnect → 重建整个 Transport 子树
+```
+
+**重连点的"持久边界"**：当网络断、Transport 死掉时，**整个子树（bash session、SFTP、所有 channel）一起失效**。重连后是全新的 Transport + 全新的 bash session（cwd / env 丢失）→ §9 的 WARNING 机制保证 agent 知情。重连失败 → 返回 `Error:`，进程不退出（用户可介入修复后下次工具调用会再触发重连尝试）。
+
 ### 5.2 `bash_session.py` — Sentinel 协议（最高风险模块）
 
 **为什么需要 sentinel**：持久 bash 的 stdout 是连续流，没有内建的"命令结束"信号。需要在用户命令后追加一行可识别的 echo，从输出里检测它的出现来判断命令边界。
@@ -673,9 +711,38 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         )
     result = dispatch(name, arguments, conn)
     return [TextContent(type="text", text=prefix + result)]
+
+# 进程入口 —— SSH 连接的生命周期完全由 main() 的 try/finally 框定
+async def main(host_name: str, config_path: str) -> None:
+    """
+    在 MCP server 进程启动时：
+      1. 加载 config.yaml
+      2. 建立 SSH 连接（compress=True、keepalive 启用）
+      3. 进入 stdio MCP 主循环（永远 await，直到 Claude Code 关闭 stdio）
+      4. 收到 EOF → 退出循环 → finally 块清理 SSH 连接
+    
+    全程只有一个 SSHConnection 实例，所有工具调用复用之。
+    """
+    global conn
+    config = load_config(config_path)
+    conn = SSHConnection(config.hosts[host_name])
+    conn.connect()              # 一次性建立 Transport
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(read_stream, write_stream,
+                          app.create_initialization_options())
+    finally:
+        conn.close()            # 进程退出前清理 bash session、SFTP、Transport
+
+# __main__.py 里：
+#   import asyncio
+#   from .server import main
+#   asyncio.run(main(args.host, args.config))
 ```
 
 每个工具的 description 文本（M1 嵌入）见 §10。
+
+**关于 `global conn`**：单进程单连接，全局变量是最直接的传参方式，避免每个工具签名里都塞一个 `conn`。如果将来扩展（不太可能在 v1），可改为 `ContextVar` 或闭包注入。
 
 ## 6. 工具接口规范
 

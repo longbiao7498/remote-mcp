@@ -30,7 +30,7 @@ Init sequence after spawning `bash --norc --noprofile` is non-negotiable for the
 
 ### 2. SSH connection + SFTP + ProxyJump (`connection.py`)
 
-One `SSHConnection` per remote host, holding: a paramiko `Transport` (with **`compress=True`** — default-on SSH compression for 3-10× text savings), a lazy SFTP client (reused for Write/Edit/MultiEdit/FileStat), and a lazy `BashSession` (singleton for the connection's life). Two execution paths:
+**Process model and connection lifecycle** (see spec §5.1.1): each registered `mcp__remote-<host>__` is a **long-lived OS process**, not a per-call spawn. It stays alive for the entire Claude Code session. `main()` builds one `SSHConnection` at startup, all tool calls share it, `conn.close()` runs in `finally` when stdio closes. One `SSHConnection` per process, holding: a paramiko `Transport` (with **`compress=True`** — default-on SSH compression for 3-10× text savings) that multiplexes a persistent bash channel + a lazy SFTP channel + per-call ephemeral exec channels. Two execution paths:
 - `exec(cmd)` — stateless, one-shot channel. Used by Read (sed-slicing), Glob, Grep, MultiRead.
 - `get_bash_session().execute(cmd)` — stateful persistent shell. Used by Bash (foreground + background launch).
 
