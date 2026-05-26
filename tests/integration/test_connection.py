@@ -88,3 +88,27 @@ def test_exec_captures_stderr_separately(host_config):
         assert "to_stderr" in result.stderr
     finally:
         conn.close()
+
+
+def test_get_sftp_returns_client(host_config):
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        sftp = conn.get_sftp()
+        # Use it: list home dir
+        listing = sftp.listdir(".")
+        assert isinstance(listing, list)
+    finally:
+        conn.close()
+
+
+def test_get_sftp_returns_same_instance(host_config):
+    """Verify lazy + cached (no new channel per call)."""
+    conn = SSHConnection(host_config)
+    conn.connect()
+    try:
+        s1 = conn.get_sftp()
+        s2 = conn.get_sftp()
+        assert s1 is s2
+    finally:
+        conn.close()

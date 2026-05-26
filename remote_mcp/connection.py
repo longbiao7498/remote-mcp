@@ -19,6 +19,7 @@ class SSHConnection:
         self.config = config
         self._transport: Optional[paramiko.Transport] = None
         self._client: Optional[paramiko.SSHClient] = None
+        self._sftp: Optional[paramiko.SFTPClient] = None
         self._reconnected: bool = False
 
     def connect(self) -> None:
@@ -56,7 +57,20 @@ class SSHConnection:
         exit_code = stdout.channel.recv_exit_status()
         return ExecResult(stdout=out, stderr=err, exit_code=exit_code)
 
+    def get_sftp(self) -> paramiko.SFTPClient:
+        if self._sftp is None:
+            if self._client is None:
+                raise RuntimeError("SSHConnection not connected")
+            self._sftp = self._client.open_sftp()
+        return self._sftp
+
     def close(self) -> None:
+        if self._sftp is not None:
+            try:
+                self._sftp.close()
+            except Exception:
+                pass
+            self._sftp = None
         if self._client is not None:
             try:
                 self._client.close()
