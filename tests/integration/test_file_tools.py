@@ -134,7 +134,49 @@ def test_edit_file_not_found(conn):
     assert out.startswith("Error: File not found:")
 
 
+from remote_mcp.tools import multi_read as mr_tool
 from remote_mcp.tools import multi_edit as me_tool
+
+
+def test_multi_read_two_files(conn):
+    write_tool.write(conn, "/tmp/rmcp-mr-a.txt", "AAA\nAAA2\n")
+    write_tool.write(conn, "/tmp/rmcp-mr-b.txt", "BBB\nBBB2\n")
+    out = mr_tool.multi_read(conn, [
+        {"file_path": "/tmp/rmcp-mr-a.txt"},
+        {"file_path": "/tmp/rmcp-mr-b.txt"},
+    ])
+    assert "===FILE: /tmp/rmcp-mr-a.txt===" in out
+    assert "===FILE: /tmp/rmcp-mr-b.txt===" in out
+    assert "     1\tAAA\n" in out
+    assert "     1\tBBB\n" in out
+
+
+def test_multi_read_missing_file_marker(conn):
+    write_tool.write(conn, "/tmp/rmcp-mr-c.txt", "exists\n")
+    out = mr_tool.multi_read(conn, [
+        {"file_path": "/tmp/rmcp-mr-c.txt"},
+        {"file_path": "/tmp/rmcp-does-not-exist-xyz"},
+    ])
+    assert "===FILE: /tmp/rmcp-mr-c.txt===" in out
+    assert "NOT_FOUND" in out
+    assert "/tmp/rmcp-does-not-exist-xyz" in out
+
+
+def test_multi_read_with_offset_limit(conn):
+    write_tool.write(conn, "/tmp/rmcp-mr-d.txt",
+                     "".join(f"line {i}\n" for i in range(1, 11)))
+    out = mr_tool.multi_read(conn, [
+        {"file_path": "/tmp/rmcp-mr-d.txt", "offset": 5, "limit": 2},
+    ])
+    assert "     5\tline 5\n" in out
+    assert "     6\tline 6\n" in out
+    assert "     4\t" not in out
+    assert "     7\t" not in out
+
+
+def test_multi_read_empty_list(conn):
+    out = mr_tool.multi_read(conn, [])
+    assert out.startswith("Error:")
 
 
 def test_multi_edit_atomic_on_remote(conn):
