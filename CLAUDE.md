@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What's being built
 
-`remote-mcp` is a **local** Python MCP server that exposes nine tools (Read, Write, Edit, MultiEdit, MultiRead, FileStat, Bash, Glob, Grep) to Claude Code, all operating on a remote Linux host over SSH. The seven that have Claude Code native counterparts (Read/Write/Edit/MultiEdit/Bash/Glob/Grep) match their schemas and output formats; MultiRead and FileStat are bandwidth-driven additions with no native equivalent. Hard constraints: remote host has SSH only (no agent install), transport is stdio MCP, SSH library is paramiko.
+`remote-mcp` is a **local** Python MCP server that exposes ten tools (Read, Write, Edit, MultiEdit, MultiRead, FileStat, Bash, Glob, Grep, Feedback) to Claude Code. Nine operate on a remote Linux host over SSH; the tenth (Feedback) writes to a local JSONL file for agent-driven dev-loop bookkeeping. The seven with Claude Code native counterparts (Read/Write/Edit/MultiEdit/Bash/Glob/Grep) match their schemas and output formats; MultiRead/FileStat are bandwidth-driven additions with no native equivalent; Feedback is a self-improvement channel — agent files bugs/feature ideas about remote-mcp itself, maintainer reads later to drive iteration. Hard constraints: remote host has SSH only (no agent install), transport is stdio MCP, SSH library is paramiko.
 
 The authoritative design is `docs/superpowers/specs/2026-05-26-remote-mcp-design.md` (v2). The Chinese-language `软件设计文档.md` at repo root is the prior v1 draft — kept for reference but **superseded by v2**.
 
@@ -53,6 +53,7 @@ On SSH drop, auto-reconnect once. The bash session is rebuilt **and shell state 
 - Bash with `run_in_background=true` wraps the user command in `setsid nohup bash -c '...' > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`. Returns PID + log path + 4 ready-to-paste command templates (status / read output / stop / force-stop). The `setsid` is **non-optional** — without it `kill -- -<pid>` would also kill the BashSession.
 - Glob converts `**` patterns to `find -wholename` / `-path` to preserve path-segment semantics; not just `-name <basename>` (which was v1).
 - Grep supports `-A/-B/-C` context lines, `head_limit`, `output_mode` (content/files_with_matches/count). Bandwidth win: agent can get matches + surrounding context in one call instead of grep-then-multiple-reads.
+- Feedback appends a JSONL entry to `~/.local/share/remote-mcp/feedback.jsonl` (path overridable via top-level `feedback_path` in config). Single `write()` of a JSONL line is POSIX-atomic for typical sizes — multiple per-host processes can write the same file safely. Tool itself does not transmit anywhere; the file is the maintainer's data.
 
 ## Planned project layout
 
@@ -63,7 +64,7 @@ remote_mcp/
 ├── connection.py      # SSHConnection (compress=True default), HostConfig, ExecResult, ProxyJump
 ├── bash_session.py    # BashSession + sentinel protocol (captures exit_code AND cwd) + reader thread
 └── tools/
-    ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py
+    ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py feedback.py
 CLAUDE.md.fragment.md  # shipped at repo root; users copy to their remote project's CLAUDE.md
 ```
 
@@ -77,7 +78,7 @@ Strict bottom-up; per-stage acceptance criteria in spec §13. Don't skip ahead.
 2. `bash_session.py` — **highest-risk stage**; build a standalone test script before integrating. Sentinel format `RMCP_SENTINEL_<uuid>_EXIT_$?_CWD_$(pwd)` — capture exit_code AND cwd together
 3. File tools: Read (sed-slicing) / Write (SFTP mkdir) / Edit / MultiEdit / **MultiRead** / **FileStat**
 4. Search tools: Glob (`**` via `-wholename`) / Grep (with `-A/-B/-C`, `head_limit`, `output_mode`)
-5. `server.py` + `__main__.py` + Bash tool (foreground AND **`run_in_background`**)
+5. `server.py` + `__main__.py` + Bash tool (foreground AND **`run_in_background`**) + **Feedback** (local JSONL append)
 6. Packaging + README + `CLAUDE.md.fragment.md`
 
 ## Commands (once implemented)
@@ -103,3 +104,4 @@ Don't "fix" these without checking with the user first — they're explicit scop
 - Background bash PID reuse is a known low-probability hazard — agent should `kill -0 <pid>` before sending kill signals.
 - Cross-host operations (e.g. copy file from prod to gpu) are NOT first-class — out of scope entirely. Use `Bash("scp prod:path gpu:path")` with user-arranged SSH trust.
 - Performance not tuned for >3 simultaneous hosts (each runs its own Python process). Federation/plugin form is future work.
+- Feedback file is not auto-rotated; maintainer archives manually. No upstream telemetry — purely local dev loop.

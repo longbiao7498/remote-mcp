@@ -49,22 +49,23 @@
 
 **文件操作通道**：SFTP 二进制安全，不经 shell，无转义陷阱。
 
-## 4. 工具集（9 个）
+## 4. 工具集（10 个）
 
-Read、Write、Edit、**MultiEdit**、**MultiRead**、**FileStat**、Bash（含 `run_in_background` 参数）、Glob、Grep（参数扩展）。所有工具：
+Read、Write、Edit、**MultiEdit**、**MultiRead**、**FileStat**、Bash（含 `run_in_background` 参数）、Glob、Grep（参数扩展）、**Feedback**。所有工具：
 - 失败返回以 `Error:` 开头的字符串，不抛异常。
-- 工具描述（description）末尾嵌入 1 行带宽感知提示（见 §10 M1）。
-- **保真度策略**：Read/Write/Edit/MultiEdit/Bash/Glob/Grep 的名称、参数名、输出格式对齐 Claude Code 原生工具；MultiRead/FileStat 是为远程带宽场景新增的工具（原生无对应），但 schema 和输出格式按"自洽、不易误用"标准设计。
+- 工具描述（description）末尾嵌入 1 行带宽感知或使用提示（见 §10 M1）。
+- **保真度策略**：Read/Write/Edit/MultiEdit/Bash/Glob/Grep 的名称、参数名、输出格式对齐 Claude Code 原生工具；MultiRead/FileStat/Feedback 是为远程带宽场景或开发反馈循环新增的工具（原生无对应），按"自洽、不易误用"标准设计 schema。
 
-**为什么加这 4 项（v2 相对 v1 工具集）**：
+**为什么加这 5 项（v2 相对 v1 工具集）**：
 
-| 增量 | 解决的反模式 | 带宽收益 |
-|------|------------|---------|
+| 增量 | 解决的反模式 / 目的 | 收益 |
+|------|------------------|------|
 | **MultiEdit** | 同文件 N 次 Edit = 2N 次完整文件传输 | N 次 RTT → 1 次 RTT |
 | **MultiRead** | 探索多个相关文件 = N 次独立 Read | N 次 RTT → 1 次 RTT |
 | **FileStat** | "检查文件是否存在/多大" 用 Read 试探，可能传几 MB 只为知道大小 | 几字节 vs 完整文件 |
 | **Grep 参数扩展**（`-A/-B/-C` 等） | grep 找到匹配后再 Read 周围上下文 | 半数往返消失 |
 | **Bash `run_in_background`** | 长操作（build/test/install）阻塞整个对话 | 立即返回，不省带宽但消除阻塞 |
+| **Feedback** | agent 使用本工具时遇到的 bug / 灵光一现的功能想法没渠道沉淀 | 自动 dev loop——维护者可基于真实使用反馈迭代 |
 
 ## 5. 模块详细设计
 
@@ -566,6 +567,77 @@ def grep_tool(conn: SSHConnection, pattern: str, path: str,
 
 **`multiline` 参数刻意不支持**：原生 Grep 的 multiline 依赖 ripgrep 的 `-U` 标志，我们的实施基于 POSIX `grep`（远程未必有 ripgrep）。标准 `grep -E` 跨行匹配能力有限。这是已知缺口，进 §14 已知局限。
 
+#### 5.3.10 Feedback（v2 新增，非原生）
+
+**目的**：让 agent 在使用 remote-mcp 工具的过程中持续沉淀两类信息——
+1. **bug**：remote-mcp 工具表现不符合预期（schema 错位、错误措辞偏离原生、输出损坏、超时反常等）
+2. **enhancement**：agent 在工作中想到的、能让 remote-mcp 工作流更高效的功能（新工具、新参数、新优化）
+
+输出落到本地一份 JSONL 文件，让维护者后续基于真实使用数据迭代。**绝不外传**，纯本地 dev loop。
+
+```python
+# Fragment
+import json
+import os
+import pathlib
+from datetime import datetime, timezone
+
+def feedback(conn_name: str, feedback_path: str,
+             category: str, summary: str, details: str = "") -> str:
+    if category not in ("bug", "enhancement"):
+        return (f"Error: category must be 'bug' or 'enhancement', "
+                f"got {category!r}")
+    if not summary.strip():
+        return "Error: summary cannot be empty"
+
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "host": conn_name,
+        "category": category,
+        "summary": summary.strip(),
+        "details": (details.strip() or None) if details else None,
+        "session_pid": os.getpid(),
+    }
+
+    path = pathlib.Path(feedback_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # JSONL append。单次 write 在 POSIX 上对 < PIPE_BUF (通常 4 KB)
+    # 的数据是原子的——单条 feedback 远小于此阈值，多进程并发安全。
+    line = json.dumps(entry, ensure_ascii=False) + "\n"
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(line)
+
+    return f"Feedback recorded: [{category}] {summary} -> {feedback_path}"
+```
+
+**自动捕获 vs. agent 提供**：
+
+| 字段 | 来源 | 备注 |
+|------|------|------|
+| `ts` | 工具自动 | UTC ISO 8601 |
+| `host` | 工具自动 | 当前 MCP server 关联的远程主机名 |
+| `session_pid` | 工具自动 | MCP server 进程 PID，便于关联日志 |
+| `category` | agent 提供 | `bug` / `enhancement` |
+| `summary` | agent 提供 | 一行摘要 |
+| `details` | agent 提供（可选） | 详细描述：哪个工具、做了什么、期望/实际 |
+
+**为什么不让 agent 读历史 feedback**：故意只暴露写入接口。读取 = 多一次工具调用、可能干扰任务专注、且无价值（agent 自然记不住既往反馈也无所谓——维护者后续 dedupe）。如果将来 M3 plugin 需要"agent 查询过历史反馈避免重复"，再加。
+
+**为什么独立工具而不是让 agent 自己 Write 文件**：
+- Schema 一致性：分类、字段、时间戳格式不依赖 agent 记忆
+- 原子性：多进程（多主机）并发写同一文件，shell 走 Write 难保证；工具内 `open(..., 'a')` POSIX 原子
+- 触发性：独立工具配合工具 description 能更有效引导 agent 主动反馈
+
+**输出文件示例**：
+
+```
+{"ts":"2026-05-26T14:30:00+00:00","host":"prod","category":"bug","summary":"Glob '**' missed nested matches","details":"Tried Glob(pattern='src/**/*.py', path='.'). Expected src/sub/foo.py to appear; only got src/foo.py.","session_pid":12345}
+{"ts":"2026-05-26T15:12:33+00:00","host":"gpu","category":"enhancement","summary":"Add MultiWrite tool","details":"Often need to write 3-4 new files in sequence (e.g. scaffolding). Each Write is one round-trip; a MultiWrite([{path,content}, ...]) would compress to 1 RTT — symmetric to MultiRead.","session_pid":54321}
+```
+
+**隐私**：`details` 可能含用户代码片段。文件完全本地，由用户自己拥有。M2 文档里写明这点。
+
 ### 5.4 `server.py`
 
 ```python
@@ -582,6 +654,7 @@ async def list_tools() -> list[Tool]:
         Tool(name="MultiRead", description=MULTIREAD_DESC, inputSchema=MULTIREAD_SCHEMA),
         Tool(name="FileStat", description=FILESTAT_DESC, inputSchema=FILESTAT_SCHEMA),
         Tool(name="Bash", description=BASH_DESC, inputSchema=BASH_SCHEMA),
+        Tool(name="Feedback", description=FEEDBACK_DESC, inputSchema=FEEDBACK_SCHEMA),
         Tool(name="Glob", description=GLOB_DESC, inputSchema=GLOB_SCHEMA),
         Tool(name="Grep", description=GREP_DESC, inputSchema=GREP_SCHEMA),
     ]
@@ -619,8 +692,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 | Bash | `command` | `run_in_background=false`, `timeout=120`, `description=""` | 前台：`[host=X cwd=Y]\n<output>[\n[Exit code: N]]`；后台：`[host=X cwd=Y]\nStarted background task.\n  PID: <pid>\n  Log: <log_path>\n\n<usage hints>` |
 | Glob | `pattern` | `path="."` | 每行一个绝对/相对路径 |
 | Grep | `pattern`, `path` | `include`/`glob`, `case_insensitive=false`, `before=0`, `after=0`, `context=0`, `head_limit=200`, `output_mode="content"` | content 模式：`path:lineno:matched_line`；files_with_matches：每行一个路径；count：`path:count` |
+| **Feedback** | `category` (`"bug"` 或 `"enhancement"`), `summary` | `details=""` | `Feedback recorded: [<category>] <summary> -> <path>` |
 
-错误文本必须**逐字**对齐原生（"File not found:"、"old_string not found"、"old_string found N times in ..."），否则 agent 的恢复策略可能失效。MultiRead/FileStat 因无原生对应，错误措辞按 spec §5.3.5/§5.3.6 钉死。
+错误文本必须**逐字**对齐原生（"File not found:"、"old_string not found"、"old_string found N times in ..."），否则 agent 的恢复策略可能失效。MultiRead/FileStat/Feedback 因无原生对应，错误措辞按 spec §5.3.5/§5.3.6/§5.3.10 钉死。
 
 ## 7. 带宽与延迟优化（v2 核心增量）
 
@@ -686,6 +760,7 @@ Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`
 | Bash | `Command output is transferred over SSH. Batch related commands with '&&'; pipe large outputs through head/tail. For long-running commands (build/test/install) set run_in_background=true — returns immediately with PID and log path; poll output via Read on the log; clean up with the printed kill command. Shell state persists across foreground calls.` |
 | Glob | `Runs server-side and returns only paths. Output is capped — narrow the path argument when searching large trees.` |
 | Grep | `Filters server-side and returns only matching lines. Use context/before/after to include surrounding lines in the same call instead of following up with Read. Use output_mode='files_with_matches' or 'count' when you don't need the matched lines themselves.` |
+| Feedback | `Record a bug or enhancement idea about the remote-mcp tools themselves (NOT about the user's code or remote system). Use 'bug' when a remote-mcp tool behaves wrong; 'enhancement' for tool improvements you imagine while working. Brief, non-blocking — file and continue your task.` |
 
 ### 10.2 M2 — `CLAUDE.md.fragment.md`
 
@@ -721,6 +796,44 @@ Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`
 - 尽量把工作集中在单台主机上完成；跨主机协调需求增加错误率。
 - 跨主机文件传输：用 Bash 调 `scp <local>:<path> <remote>:<path>`（需用户预先在主机间配好 SSH 互信）。**禁止** Read-本地中转-Write 的"双跳"模式，这会双倍消耗带宽。
 - 看到 `[WARNING] SSH connection to <host> was lost` 时，状态丢失仅限那台主机。其他主机不受影响。
+
+### 持续反馈（Continuous improvement feedback）
+
+remote-mcp 提供 `Feedback` 工具，让你（agent）把使用过程中遇到的问题或灵感沉淀下来。维护者会读这些反馈来迭代工具。
+
+**何时调用 Feedback**：
+
+✅ **DO** —— 这些场景请主动反馈：
+- 某个 remote-mcp 工具的行为不符合 Claude Code 原生工具的预期（schema 不一致、错误措辞偏离、输出格式错位等）
+- 某个工具有 bug：超时反常、输出损坏、参数无效却没报错、结果与文档不符
+- 你在工作中想到："如果有一个 X 工具，或者 Y 工具加一个 Z 参数，会让这件事简单很多"——具体到能描述 API 的程度
+- 工作流摩擦：某个常见场景需要 3+ 次工具调用才能完成，明显有合并空间
+
+❌ **DON'T** —— 这些场景不要用 Feedback：
+- 用户代码里的 bug（应该改用户代码 / 写到用户项目的 issue 跟踪里）
+- 远程系统问题（磁盘满、权限错、服务挂等运维问题）
+- 你不确定的猜测（"也许 Read 应该 X？我没试过"）—— 反馈一定基于实际遇到的情况
+
+**调用规范**：
+- `category="bug"` 配实际复现描述（哪个工具、什么参数、期望什么、实际什么）
+- `category="enhancement"` 配具体到能 mock API 的程度（不要"希望更好用"这种模糊话）
+- **不打断当前任务**：file 完一条 feedback 就继续手头的事，不要因为反馈而中断主流程
+- summary 一行能说清；details 写背景上下文
+
+**隐私**：Feedback 写入本地文件 `~/.local/share/remote-mcp/feedback.jsonl`，不上传任何地方。`details` 可包含代码片段——你自己决定要不要分享给上游维护者。
+
+**示例**：
+
+```
+✅ Feedback(category="bug", summary="Glob '**' missed nested matches",
+            details="Tried Glob(pattern='src/**/*.py'). Files in src/sub/foo.py didn't appear; only src/foo.py did. Re-ran with find -wholename manually — files exist. Looks like the ** → -wholename conversion missed nested cases.")
+
+✅ Feedback(category="enhancement", summary="Add MultiWrite tool",
+            details="Often need to write 3-4 scaffolding files in sequence. Currently each Write is one RTT. A MultiWrite([{path, content}, ...]) symmetric to MultiRead would compress to 1 RTT.")
+
+❌ Feedback(category="bug", summary="my code crashed")
+   ← 这是用户代码问题，不是 remote-mcp 工具问题
+```
 ```
 
 ### 10.3 M3 — Plugin 形态（future work，详见 §15）
@@ -750,9 +863,14 @@ hosts:
     jump_host: prod
 
 default_host: prod
+
+# 顶层字段（不属于任何 host），v2 新增
+feedback_path: ~/.local/share/remote-mcp/feedback.jsonl
 ```
 
 所有 v2 新增字段都有默认值，已有 config.yaml 升级无须改动即可工作。
+
+**`feedback_path`** 是顶层字段（非 per-host），因为多个 per-host server 进程应该写入同一份反馈文件——维护者读一份就能看到所有反馈。默认值用 XDG `~/.local/share/remote-mcp/feedback.jsonl`。父目录不存在时 Feedback 工具自动 `mkdir -p`。
 
 ## 12. 测试策略
 
@@ -830,15 +948,20 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - **Grep `output_mode="count"`** → 每行 `<path>:<count>`
 - **Grep `head_limit=10`** → 输出不超过 10 行
 
-### 阶段 5：`server.py` + `__main__.py` + Bash 工具（含 `run_in_background`）
+### 阶段 5：`server.py` + `__main__.py` + Bash 工具（含 `run_in_background`）+ Feedback
 - `python -m remote_mcp --host prod` 启动后保持运行（stdio 不退出）
-- `claude mcp add` 注册后，Claude Code 工具列表出现 **9 个** `mcp__remote-prod__*` 工具
+- `claude mcp add` 注册后，Claude Code 工具列表出现 **10 个** `mcp__remote-prod__*` 工具
 - 前台 Bash 调用 → 返回带 `[host=prod cwd=...]` 前缀
 - **Bash `run_in_background=true` 启动 `sleep 100`** → **5 秒内返回**，输出含 `PID: <数字>`、`Log: /tmp/rmcp-bg-...`、4 行操作命令模板
 - 后台启动后 `Bash("kill -0 <pid> && echo running")` → 输出 `running`
 - 后台启动后 `Bash("kill -- -<pid>")` → 5 秒内进程消失（`kill -0` 返回非零）
 - 后台任务 spawn 子进程的场景（如 `sleep 200 & sleep 300 & wait`）→ `kill -- -<pid>` 同时干掉父进程和所有子 sleep
 - 模拟主动断连 → 下次工具调用结果以 `[WARNING] ... to prod ...` 开头，再下一次不再带
+- **Feedback(category="bug", summary="x", details="y")** → 文件 `~/.local/share/remote-mcp/feedback.jsonl` 末尾新增一行 JSON，包含 ts/host/category/summary/details/session_pid 全部字段
+- **Feedback(category="invalid", ...)** → 返回 `Error: category must be 'bug' or 'enhancement'`，文件**不写入**
+- **Feedback(summary="")** → 返回 `Error: summary cannot be empty`，文件**不写入**
+- **并发 Feedback**：两个进程同时调 Feedback 各 100 次 → 文件总行数严格 200，每行有效 JSON（验证 POSIX append 原子性）
+- feedback_path 父目录不存在 → 自动 `mkdir -p`，写入成功
 
 ### 阶段 6：交付文档与打包
 - `pip install -e .` 可装
@@ -856,6 +979,8 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - **Grep 不支持 `multiline`**：原生 Grep 的多行匹配依赖 ripgrep `-U`，远程不能假定有 ripgrep；POSIX `grep -E` 跨行匹配能力有限。需要多行匹配时 agent 应改用 Bash 跑 `awk` / `perl -0`。
 - **Background Bash 日志不自动清理**：MCP server 退出时不删 `/tmp/rmcp-bg-*.log`，方便事后排查。靠 `/tmp` 重启清理。
 - **Background Bash PID 复用风险**：若后台进程已死、PID 被系统复用、agent 仍发 `kill <pid>`，会误杀新进程。低概率但存在；agent 应先 `kill -0 <pid>` 探活。
+- **Feedback 文件不自动轮转**：v1 简单 append，靠维护者定期归档。极端情况下（数月不读）文件可能数 MB——仍能 `tail` 查看最新条目，不影响功能。
+- **Feedback 不主动转交上游**：纯本地文件，维护者手动收集。无 telemetry pipeline。
 - **2-3 台以上主机性能未优化**：进程数、SSH 连接数随主机数线性。10+ 主机场景请等 future work。
 
 ## 15. 未来工作
