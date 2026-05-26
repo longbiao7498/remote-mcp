@@ -49,14 +49,22 @@
 
 **文件操作通道**：SFTP 二进制安全，不经 shell，无转义陷阱。
 
-## 4. 工具集（7 个）
+## 4. 工具集（9 个）
 
-Read、Write、Edit、**MultiEdit**、Bash、Glob、Grep。所有工具：
-- 名称、参数名、输出格式对齐 Claude Code 原生工具。
+Read、Write、Edit、**MultiEdit**、**MultiRead**、**FileStat**、Bash（含 `run_in_background` 参数）、Glob、Grep（参数扩展）。所有工具：
 - 失败返回以 `Error:` 开头的字符串，不抛异常。
 - 工具描述（description）末尾嵌入 1 行带宽感知提示（见 §10 M1）。
+- **保真度策略**：Read/Write/Edit/MultiEdit/Bash/Glob/Grep 的名称、参数名、输出格式对齐 Claude Code 原生工具；MultiRead/FileStat 是为远程带宽场景新增的工具（原生无对应），但 schema 和输出格式按"自洽、不易误用"标准设计。
 
-MultiEdit 加入 v1 的理由：它把"同文件多次编辑"压成 1 次完整文件传输，是带宽优化里收益最大的单点；又完全保持原生保真（Claude Code 原生有此工具）。
+**为什么加这 4 项（v2 相对 v1 工具集）**：
+
+| 增量 | 解决的反模式 | 带宽收益 |
+|------|------------|---------|
+| **MultiEdit** | 同文件 N 次 Edit = 2N 次完整文件传输 | N 次 RTT → 1 次 RTT |
+| **MultiRead** | 探索多个相关文件 = N 次独立 Read | N 次 RTT → 1 次 RTT |
+| **FileStat** | "检查文件是否存在/多大" 用 Read 试探，可能传几 MB 只为知道大小 | 几字节 vs 完整文件 |
+| **Grep 参数扩展**（`-A/-B/-C` 等） | grep 找到匹配后再 Read 周围上下文 | 半数往返消失 |
+| **Bash `run_in_background`** | 长操作（build/test/install）阻塞整个对话 | 立即返回，不省带宽但消除阻塞 |
 
 ## 5. 模块详细设计
 
@@ -276,21 +284,130 @@ def multi_edit(sftp: paramiko.SFTPClient, file_path: str,
 
 **带宽收益**：N 次 Edit = N 次完整 read + N 次完整 write = 2N 次大传输；MultiEdit = 1 次 read + 1 次 write = 2 次大传输。
 
-#### 5.3.5 Bash（v2 改动：结果加 host+cwd 前缀）
+#### 5.3.5 MultiRead（v2 新增）
+
+**反模式**：agent 探索一个模块时连续读 3-5 个相关文件（config / models / utils），每个文件一次 Read = 一次 SSH RTT。高延迟链路上累计 1-5 秒纯延迟。
 
 ```python
 # Fragment
-def bash(session: BashSession, conn_name: str,
-         command: str, timeout: float = 120.0) -> str:
+def multi_read(conn: SSHConnection,
+               reads: list[dict]) -> str:
+    """
+    reads: list of {"file_path": str, "offset"?: int (1-based), "limit"?: int}
+    远程一次性切片所有文件，按文件分块返回带行号的内容。
+    """
+    if not reads:
+        return "Error: reads list is empty"
+
+    # 构造一个远程脚本，对每个 file 跑 sed -n 切片
+    script_lines = []
+    for r in reads:
+        fp = r["file_path"]
+        offset = r.get("offset", 1)
+        limit = r.get("limit", 2000)
+        end = offset + limit - 1
+        qfp = shlex.quote(fp)
+        script_lines.append(
+            f'echo "===RMCP_FILE_BEGIN:{fp}==="; '
+            f'if [ -f {qfp} ]; then '
+            f'  sed -n \'{offset},{end}p; {end+1}q\' {qfp}; '
+            f'  echo "===RMCP_FILE_END:{fp}:OK==="; '
+            f'else '
+            f'  echo "===RMCP_FILE_END:{fp}:NOT_FOUND==="; '
+            f'fi'
+        )
+    cmd = "; ".join(script_lines)
+    result = conn.exec(cmd, timeout=60)
+
+    # 解析分块，给每块加上行号前缀（按各自 offset 起算）
+    return _format_multi_read(result.stdout, reads, conn.config.read_size_cap)
+```
+
+**返回格式**（agent 易解析）：
+
+```
+===FILE: /path/to/file1.py===
+     1	import os
+     2	import sys
+     ...
+
+===FILE: /path/to/file2.py (NOT FOUND)===
+
+===FILE: /path/to/file3.py===
+    10	def foo():
+    11	    return 42
+    ...
+```
+
+**带宽收益**：N 个文件 = 1 次 RTT 而非 N 次 RTT。在 RTT 500ms 链路上，5 个文件读取从 2.5 秒降到 0.5 秒。
+
+**关于总大小 cap**：所有文件累计内容若超过 `read_size_cap`，按文件顺序累加截断（保证至少返回前几个文件完整）。返回末尾追加 `... [N more files truncated]`。
+
+#### 5.3.6 FileStat（v2 新增）
+
+**反模式**：agent 想知道"文件存在吗？多大？什么时候改的？"，要么 `Bash("stat file")` 一次往返、要么直接 Read 试探——后者可能传输几十 MB 只为知道文件不该被读。
+
+```python
+# Fragment
+import stat as _stat
+
+def file_stat(sftp: paramiko.SFTPClient,
+              file_paths: Union[str, list[str]]) -> str:
+    """
+    file_paths: 单个路径或路径列表。
+    返回结构化文本（每个文件一行或一段），含 exists/size/mtime/mode/is_dir。
+    """
+    if isinstance(file_paths, str):
+        file_paths = [file_paths]
+
+    lines = []
+    for fp in file_paths:
+        try:
+            st = sftp.stat(fp)
+            kind = "dir" if _stat.S_ISDIR(st.st_mode) else \
+                   "symlink" if _stat.S_ISLNK(st.st_mode) else \
+                   "file"
+            mtime_iso = datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")
+            lines.append(
+                f"{fp}: exists=true type={kind} size={st.st_size} "
+                f"mode={oct(st.st_mode)[-4:]} mtime={mtime_iso}"
+            )
+        except FileNotFoundError:
+            lines.append(f"{fp}: exists=false")
+        except PermissionError:
+            lines.append(f"{fp}: error=permission_denied")
+        except Exception as e:
+            lines.append(f"{fp}: error={type(e).__name__}: {e}")
+
+    return "\n".join(lines)
+```
+
+**带宽收益**：单次 stat 调用通常 < 100 bytes（vs. Read 一个文件可能是 MB 级）。对"试探性 Read"反模式是数量级的优化。
+
+**为什么走 SFTP `stat` 而非 `Bash("stat ...")`**：SFTP `stat` 复用已有 SFTP session（无需 channel 建立），且返回结构化数据（无需解析 stat 命令输出）。批量调用也比 shell `for` 循环快——每个 stat 是单 SFTP 消息。
+
+#### 5.3.7 Bash（v2 改动：host+cwd 前缀 + `run_in_background`）
+
+```python
+# Fragment
+def bash(session: BashSession, conn_name: str, command: str,
+         run_in_background: bool = False,
+         timeout: float = 120.0,
+         description: str = "") -> str:
+    if run_in_background:
+        return _bash_background(session, conn_name, command)
+    return _bash_foreground(session, conn_name, command, timeout)
+
+def _bash_foreground(session, conn_name, command, timeout):
     try:
         result = session.execute(command, timeout=timeout)
     except TimeoutError:
         return f"Error: Command timed out after {timeout}s on {conn_name}"
 
-    cwd = session.current_cwd()   # 缓存值或 sentinel 协议探测
+    cwd = session.current_cwd()
     output = result.output
 
-    # v2 P1：结果加主机+cwd 元信息行（agent 在多主机场景下能看清当前状态）
+    # v2 P1：结果加主机+cwd 元信息行
     prefix = f"[host={conn_name} cwd={cwd}]\n"
 
     if result.exit_code != 0:
@@ -302,11 +419,58 @@ def bash(session: BashSession, conn_name: str,
                  f"\n... [truncated to {session.config.bash_output_cap} bytes]"
 
     return prefix + output
+
+def _bash_background(session, conn_name, command):
+    """
+    v2 新增：后台启动命令，立即返回 PID + 日志路径 + 操作命令模板。
+    用 setsid 把命令放入独立进程组（PID = PGID），agent 可用
+    `kill -- -<pid>` 干净地杀掉整棵进程树。
+    """
+    bg_uuid = uuid.uuid4().hex[:12]
+    log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
+    quoted_cmd = shlex.quote(command)
+    quoted_log = shlex.quote(log_path)
+
+    # 关键点：
+    #   1. setsid 创建新会话，bash 成为新进程组 leader，PID = PGID
+    #   2. nohup 防 SIGHUP（虽然 setsid 已脱离 controlling terminal，加上更稳）
+    #   3. </dev/null 切断 stdin，避免后台进程阻塞读输入
+    #   4. ( ... ) 子 shell 包裹，确保 $! 在 echo 时刚被赋值
+    wrap = (
+        f"( setsid nohup bash -c {quoted_cmd} "
+        f"> {quoted_log} 2>&1 </dev/null & echo \"BG_PID=$!\" )"
+    )
+    result = session.execute(wrap, timeout=10)
+
+    # 解析 BG_PID=<n>
+    m = re.search(r"BG_PID=(\d+)", result.output)
+    if not m:
+        return (f"Error: failed to start background task on {conn_name}. "
+                f"Output: {result.output[:500]}")
+    pid = m.group(1)
+    cwd = session.current_cwd()
+
+    return (
+        f"[host={conn_name} cwd={cwd}]\n"
+        f"Started background task.\n"
+        f"  PID: {pid}\n"
+        f"  Log: {log_path}\n\n"
+        f"To check status:    Bash(\"kill -0 {pid} && echo running || echo done\")\n"
+        f"To read new output: Read(\"{log_path}\", offset=<last_line+1>)\n"
+        f"To stop gracefully: Bash(\"kill -TERM -- -{pid}\")\n"
+        f"To force stop:      Bash(\"kill -KILL -- -{pid}\")\n"
+    )
 ```
 
 `session.current_cwd()` 返回最近一次 `execute()` 捕获并缓存的 cwd 值。捕获机制：sentinel 行格式扩展为 `RMCP_SENTINEL_{uuid}_EXIT_$?_CWD_$(pwd)`（与 §5.2 一致），解析时按 `_EXIT_` 和 `_CWD_` 切分提取两字段。**这是 P1 的具体落地**。
 
-#### 5.3.6 Glob（v2 改动：`**` 修正 + cap）
+**后台任务的关键设计点**：
+- **使用 `setsid` 而非 `&` 自带的后台化**：我们 `set +m` 关了 job control，bash 默认不会把 `cmd &` 放进新进程组——它仍在 BashSession 的进程组里。如果 agent 用 `kill -- -<pid>` 想杀整组，会连 BashSession 一起干掉。必须显式 `setsid` 让后台命令成为独立 session/进程组的 leader。
+- **不是新工具**：bg 模式复用现有 Bash 工具，仅是 `run_in_background=true` 参数分支。agent 现有"Bash 经验"无缝迁移。
+- **不需要 BashOutput/KillBash 这类配套工具**：日志在远程文件，复用现有 Read 拉取；终止用现有 Bash 执行 `kill` 命令。这是 Claude Code 原生设计（截至当前版本）相同的简洁路径。
+- **日志清理**：MCP server 进程退出时不自动清理 `/tmp/rmcp-bg-*.log`——文件留着方便用户事后排查。`/tmp` 重启会清，可接受。
+
+#### 5.3.8 Glob（v2 改动：`**` 修正 + cap）
 
 ```python
 # Fragment
@@ -338,18 +502,59 @@ def _glob_to_find(pattern: str) -> str:
 
 **与 v1 的差异**：v1 直接 `find -name <basename>`，丢失路径段；v2 把 pattern 拆解为 `-name` 或 `-wholename`/`-path`，保留路径层级语义。**接近**原生 `**` 但不保证 100% 等价（用例驱动验证）。
 
-#### 5.3.7 Grep
+#### 5.3.9 Grep（v2 改动：参数扩展）
+
+**v2 扩展的参数（与 Claude Code 原生 Grep 对齐 + 直接的带宽收益）**：
+
+| 新增参数 | 等价 grep 选项 | 带宽收益 |
+|---------|----------------|---------|
+| `before: int = 0` | `-B N` | 显示匹配前 N 行 |
+| `after: int = 0` | `-A N` | 显示匹配后 N 行 |
+| `context: int = 0` | `-C N` | 同时设前后 N 行（覆盖 before/after） |
+| `head_limit: int = 200` | `\| head -N` | 显式指定输出上限 |
+| `output_mode: str = "content"` | 默认 / `-l` / `-c` | content/files_with_matches/count |
+| `glob: str = ""` | `--include` | 文件名 pattern 过滤（兼容旧 `include` 参数） |
+
+`-A/-B/-C` 是带宽收益最大的单点——它把"grep 找到关键字 → 再 N 次 Read 周围代码"的反模式压成 1 次 RTT。
 
 ```python
 # Fragment
 def grep_tool(conn: SSHConnection, pattern: str, path: str,
-              include: str = "", case_insensitive: bool = False) -> str:
-    flags = "-rn"
+              include: str = "",
+              case_insensitive: bool = False,
+              before: int = 0,
+              after: int = 0,
+              context: int = 0,
+              head_limit: int = 200,
+              output_mode: str = "content") -> str:
+    # output_mode 映射
+    if output_mode == "files_with_matches":
+        mode_flag = "-l"
+    elif output_mode == "count":
+        mode_flag = "-c"
+    elif output_mode == "content":
+        mode_flag = "-n"
+    else:
+        return f"Error: invalid output_mode: {output_mode!r}"
+
+    flags = ["-r", mode_flag]
     if case_insensitive:
-        flags += "i"
+        flags.append("-i")
+
+    # 上下文行（仅 content 模式有意义）
+    if output_mode == "content":
+        if context > 0:
+            flags.append(f"-C{context}")
+        else:
+            if before > 0:
+                flags.append(f"-B{before}")
+            if after > 0:
+                flags.append(f"-A{after}")
+
     include_opt = f"--include={shlex.quote(include)}" if include else ""
-    cmd = (f"grep {flags} {include_opt} -E {shlex.quote(pattern)} "
-           f"{shlex.quote(path)} | head -200")
+    cmd = (f"grep {' '.join(flags)} {include_opt} -E "
+           f"{shlex.quote(pattern)} {shlex.quote(path)} "
+           f"| head -{head_limit}")
     result = conn.exec(cmd)
     # grep 退出码：0=匹配，1=无匹配，2=错误
     if result.exit_code == 2:
@@ -358,6 +563,8 @@ def grep_tool(conn: SSHConnection, pattern: str, path: str,
         return "No matches found"
     return result.stdout
 ```
+
+**`multiline` 参数刻意不支持**：原生 Grep 的 multiline 依赖 ripgrep 的 `-U` 标志，我们的实施基于 POSIX `grep`（远程未必有 ripgrep）。标准 `grep -E` 跨行匹配能力有限。这是已知缺口，进 §14 已知局限。
 
 ### 5.4 `server.py`
 
@@ -372,6 +579,8 @@ async def list_tools() -> list[Tool]:
         Tool(name="Write", description=WRITE_DESC, inputSchema=WRITE_SCHEMA),
         Tool(name="Edit", description=EDIT_DESC, inputSchema=EDIT_SCHEMA),
         Tool(name="MultiEdit", description=MULTIEDIT_DESC, inputSchema=MULTIEDIT_SCHEMA),
+        Tool(name="MultiRead", description=MULTIREAD_DESC, inputSchema=MULTIREAD_SCHEMA),
+        Tool(name="FileStat", description=FILESTAT_DESC, inputSchema=FILESTAT_SCHEMA),
         Tool(name="Bash", description=BASH_DESC, inputSchema=BASH_SCHEMA),
         Tool(name="Glob", description=GLOB_DESC, inputSchema=GLOB_SCHEMA),
         Tool(name="Grep", description=GREP_DESC, inputSchema=GREP_SCHEMA),
@@ -404,12 +613,14 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 | Read | `file_path` | `offset=1`, `limit=2000` | `     <lineno>\t<line>` 5 空格 + 数字 + tab |
 | Write | `file_path`, `content` | — | `Successfully wrote N characters to <path>` |
 | Edit | `file_path`, `old_string`, `new_string` | `replace_all=false` | `Successfully edited <path>` |
-| MultiEdit | `file_path`, `edits` (list) | — | `Successfully applied N edits to <path>` |
-| Bash | `command` | `description=""`, `timeout=120` | `[host=X cwd=Y]\n<output>[\n[Exit code: N]]` |
+| MultiEdit | `file_path`, `edits` (list of {old_string, new_string, replace_all?}) | — | `Successfully applied N edits to <path>` |
+| **MultiRead** | `reads` (list of {file_path, offset?, limit?}) | — | 每文件一段，`===FILE: <path>===` 分隔 + 行号前缀 |
+| **FileStat** | `file_paths` (string or list) | — | 每文件一行：`<path>: exists=... type=... size=... mode=... mtime=...` |
+| Bash | `command` | `run_in_background=false`, `timeout=120`, `description=""` | 前台：`[host=X cwd=Y]\n<output>[\n[Exit code: N]]`；后台：`[host=X cwd=Y]\nStarted background task.\n  PID: <pid>\n  Log: <log_path>\n\n<usage hints>` |
 | Glob | `pattern` | `path="."` | 每行一个绝对/相对路径 |
-| Grep | `pattern`, `path` | `include=""`, `case_insensitive=false` | `path:lineno:matched_line` |
+| Grep | `pattern`, `path` | `include`/`glob`, `case_insensitive=false`, `before=0`, `after=0`, `context=0`, `head_limit=200`, `output_mode="content"` | content 模式：`path:lineno:matched_line`；files_with_matches：每行一个路径；count：`path:count` |
 
-错误文本必须**逐字**对齐原生（"File not found:"、"old_string not found"、"old_string found N times in ..."），否则 agent 的恢复策略可能失效。
+错误文本必须**逐字**对齐原生（"File not found:"、"old_string not found"、"old_string found N times in ..."），否则 agent 的恢复策略可能失效。MultiRead/FileStat 因无原生对应，错误措辞按 spec §5.3.5/§5.3.6 钉死。
 
 ## 7. 带宽与延迟优化（v2 核心增量）
 
@@ -418,7 +629,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 | Read | SFTP 全文 → Python 切片 | `sed -n` 远程切片 | 100MB 文件读 20 行：100MB → 几 KB |
 | Write 父目录 | `conn.exec("mkdir -p")` | SFTP 原生 mkdir | 省 1 个 channel RTT |
 | SSH 压缩 | 未启用 | `compress=True` 默认 | 文本流量 3-10× 压缩 |
-| MultiEdit | 不存在 | 1 read + N in-memory + 1 write | N 次 Edit 的 2× 减为 2× |
+| **MultiEdit** | 不存在 | 1 read + N in-memory + 1 write | N 次 Edit 的 2× 传输 → 2× |
+| **MultiRead** | 不存在 | 1 次 RTT 切片所有文件 | N 次 RTT → 1 次 RTT |
+| **FileStat** | 不存在（agent 用 Read 试探） | SFTP stat，几字节返回 | 试探巨大文件场景节省整个文件传输 |
+| **Grep `-A/-B/-C`** | 不支持上下文 | grep 返回匹配 + N 行上下文 | grep+多次 Read → 1 次 RTT |
+| **Bash `run_in_background`** | 阻塞等待 | 立即返回 PID/log | 不省带宽，**消除高延迟链路上的阻塞感** |
 | Glob 输出 | 无上限 | `head -1000` | 防止大目录树灌爆 |
 | Read 结果 | 无上限 | 256 KB cap | 防止 agent 显式传超大 limit |
 | Bash 输出 | 无上限 | 100 KB cap | 防止 `find /` 等失误刷爆带宽 |
@@ -462,13 +677,15 @@ Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`
 
 | 工具 | 嵌入提示 |
 |------|----------|
-| Read | `This tool transfers file content over SSH. To search for specific text, prefer Grep — it filters server-side.` |
+| Read | `Transfers file content over SSH. To check existence/size only, use FileStat. To search for specific text, use Grep with -A/-B/-C for context. To read multiple related files at once, use MultiRead.` |
 | Write | `Bytes are transferred over SSH. Compose the full file content locally before calling, not incrementally.` |
 | Edit | `Reads and writes the full file over SSH. For multiple changes to the same file, use MultiEdit in a single call.` |
 | MultiEdit | `Reads and writes the file once for any number of edits. Always prefer this over multiple Edit calls on the same file.` |
-| Bash | `Command output is transferred over SSH. Batch related commands with '&&'; pipe large outputs through head/tail. Shell state persists across calls.` |
+| MultiRead | `Batch reads multiple files in one network round-trip. Always prefer this over consecutive Read calls when inspecting 2+ files.` |
+| FileStat | `Returns metadata (existence, size, mtime, mode) without transferring file content. Use this before Read to avoid accidentally downloading huge files. Accepts a path or a list of paths.` |
+| Bash | `Command output is transferred over SSH. Batch related commands with '&&'; pipe large outputs through head/tail. For long-running commands (build/test/install) set run_in_background=true — returns immediately with PID and log path; poll output via Read on the log; clean up with the printed kill command. Shell state persists across foreground calls.` |
 | Glob | `Runs server-side and returns only paths. Output is capped — narrow the path argument when searching large trees.` |
-| Grep | `Filters server-side and returns only matching lines (capped at 200). Always prefer this over Read for searches.` |
+| Grep | `Filters server-side and returns only matching lines. Use context/before/after to include surrounding lines in the same call instead of following up with Read. Use output_mode='files_with_matches' or 'count' when you don't need the matched lines themselves.` |
 
 ### 10.2 M2 — `CLAUDE.md.fragment.md`
 
@@ -481,11 +698,22 @@ Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`
 请遵循以下工作流：
 
 ### 单主机模式
-- 查代码先用 Grep 定位关键字，再用 Read 配合 offset/limit 精读相关段落，不要全文 Read。
+
+**查代码 / 探索仓库**
+- 查代码先用 Grep 定位关键字。如果需要看上下文，**直接用 Grep 的 `context=5`（或 before/after）一次拿到匹配 + 周围代码**，不要 Grep 后再 Read 跟进。
+- 只想知道某个文件存在吗、多大、什么时候改的？**用 FileStat**，不要 Read 试探（可能传输 50MB 只为知道文件不该读）。
+- 探索多个相关文件（如 config / models / utils 一组）**一次 MultiRead 调用**，不要连续 Read。
+
+**编辑文件**
 - 同一文件多处修改，**一律用 MultiEdit**，禁止连续 Edit。
-- 多步骤操作优先组合命令：`cmd1 && cmd2 && cmd3` 一次 Bash 调用；
-  更复杂的逻辑写脚本（Write 上传 → Bash 执行），不要拆成几十次 Bash。
-- 长耗时操作（build、测试、下载）显式设大 timeout（如 600s），不要默认 120s 跑一半被杀。
+
+**Shell 操作**
+- 多步骤操作优先组合命令：`cmd1 && cmd2 && cmd3` 一次 Bash 调用。更复杂的逻辑写脚本（Write 上传 → Bash 执行）。
+- 长耗时操作（build / 测试 / install / 大下载）**用 `Bash(command="...", run_in_background=true)`**，agent 不会被阻塞，可以同时做别的事。
+  - 工具返回会打印 PID、日志路径、4 条操作命令模板（status / read output / stop / force-stop）——**照抄即可**，不需要记忆。
+  - 用 `Read(log_path, offset=<last_line+1>)` 增量拉日志，不要 `Bash("cat log")`。
+  - 任务做完或确定不要了，**务必用 `Bash("kill -TERM -- -<pid>")` 收尾**，否则远程会留僵尸进程。
+- 前台 Bash 长操作显式设大 timeout（如 600s），但如果可能拖到几分钟以上，直接用 `run_in_background`。
 - 大输出命令要谨慎：`find /`、`ls -R /`、`grep -r 通用词 /` 会刷爆带宽，先想清楚再发。
 
 ### 多主机模式（2-3 台同时操作时）
@@ -576,7 +804,7 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - `execute("sleep 100", timeout=2)` 约 2s 后 TimeoutError，且**下次** `execute("pwd")` 正常工作
 - sentinel 协议同时捕获 cwd：`execute` 返回结构含 `exit_code` 和 `cwd`（P1 落地的核心机制）
 
-### 阶段 3：Read / Write / Edit / MultiEdit
+### 阶段 3：文件类工具 — Read / Write / Edit / MultiEdit / MultiRead / FileStat
 - Read 远程切片：传 offset=10, limit=5 → 只返回 10-14 行，且 sed 命令命中 `-n '10,15p; 16q'`
 - Read 文件不存在 → `Error: File not found: <path>`
 - Read 大于 cap → 截断 + `[truncated ...]`
@@ -585,24 +813,37 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - Edit old_string 出现 2 次 → 措辞含 `found 2 times`
 - MultiEdit 3 个 edit 全成功 → 文件内容等价于顺序 3 次 Edit
 - MultiEdit 第 2 个失败 → 文件未被修改（原子性）
+- **MultiRead** 3 个文件 → 单次 `conn.exec`（用 mock 验证只发了一条命令），返回分块带各自行号前缀
+- **MultiRead** 中某个文件不存在 → 该块标记 `NOT_FOUND`，其他文件正常返回
+- **FileStat** 单文件存在 → 输出含 `exists=true type=file size=... mtime=...`
+- **FileStat** 单文件不存在 → 输出 `<path>: exists=false`
+- **FileStat** 列表参数 → 每文件一行，顺序与输入一致
 
-### 阶段 4：Glob / Grep
+### 阶段 4：搜索类工具 — Glob / Grep（含扩展参数）
 - Glob `"*.py"` 在含 Python 文件的目录 → 正确列表
 - Glob `"src/**/*.py"` → 路径含 `src/` 的 py 文件（重点：路径段保留，非仅文件名）
 - Glob 大目录 → cap 触发，结果末尾有截断说明
 - Grep 在 1 GB 文件搜关键词 → 响应时间显著少于全文传输时间（验证服务端过滤）
 - Grep 路径不存在 → `Error: <stderr>`
+- **Grep `context=3`** → 输出含匹配行 + 前后 3 行（带 `--` 分隔符或 `path-lineno-line` 格式）
+- **Grep `output_mode="files_with_matches"`** → 每行一个文件路径，无行内容
+- **Grep `output_mode="count"`** → 每行 `<path>:<count>`
+- **Grep `head_limit=10`** → 输出不超过 10 行
 
-### 阶段 5：`server.py` + `__main__.py`
+### 阶段 5：`server.py` + `__main__.py` + Bash 工具（含 `run_in_background`）
 - `python -m remote_mcp --host prod` 启动后保持运行（stdio 不退出）
-- `claude mcp add` 注册后，Claude Code 工具列表出现 7 个 `mcp__remote-prod__*` 工具
-- 实际在 Claude Code 中调用 Bash → 返回带 `[host=prod cwd=...]` 前缀
+- `claude mcp add` 注册后，Claude Code 工具列表出现 **9 个** `mcp__remote-prod__*` 工具
+- 前台 Bash 调用 → 返回带 `[host=prod cwd=...]` 前缀
+- **Bash `run_in_background=true` 启动 `sleep 100`** → **5 秒内返回**，输出含 `PID: <数字>`、`Log: /tmp/rmcp-bg-...`、4 行操作命令模板
+- 后台启动后 `Bash("kill -0 <pid> && echo running")` → 输出 `running`
+- 后台启动后 `Bash("kill -- -<pid>")` → 5 秒内进程消失（`kill -0` 返回非零）
+- 后台任务 spawn 子进程的场景（如 `sleep 200 & sleep 300 & wait`）→ `kill -- -<pid>` 同时干掉父进程和所有子 sleep
 - 模拟主动断连 → 下次工具调用结果以 `[WARNING] ... to prod ...` 开头，再下一次不再带
 
 ### 阶段 6：交付文档与打包
 - `pip install -e .` 可装
 - README：安装、配置、`claude mcp add` 步骤、常见故障排查
-- `CLAUDE.md.fragment.md` 单独文件，包含 §10.2 所述内容
+- `CLAUDE.md.fragment.md` 单独文件，包含 §10.2 所述内容（含多主机段落与后台 Bash 用法）
 - pyproject.toml：依赖 paramiko、mcp、pyyaml；声明 `entry_points` 或 `console_scripts`
 
 ## 14. 已知局限（v1 不解决）
@@ -612,6 +853,9 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - **Edit / MultiEdit 非原子（跨进程）**：同一 agent 串行调用没问题；多 agent 并发写同文件可能竞争。本版本不处理。
 - **Read 不支持单行超大场景**：即使切片，单行超过 cap 时仍会截断中间。
 - **Glob `**` 接近但不保证 100% 等价原生**：路径段层级用 `-wholename` 模拟，对某些 case（如 brace expansion）不展开。验收测试中列具体 case 集，发现差异时补丁修正。
+- **Grep 不支持 `multiline`**：原生 Grep 的多行匹配依赖 ripgrep `-U`，远程不能假定有 ripgrep；POSIX `grep -E` 跨行匹配能力有限。需要多行匹配时 agent 应改用 Bash 跑 `awk` / `perl -0`。
+- **Background Bash 日志不自动清理**：MCP server 退出时不删 `/tmp/rmcp-bg-*.log`，方便事后排查。靠 `/tmp` 重启清理。
+- **Background Bash PID 复用风险**：若后台进程已死、PID 被系统复用、agent 仍发 `kill <pid>`，会误杀新进程。低概率但存在；agent 应先 `kill -0 <pid>` 探活。
 - **2-3 台以上主机性能未优化**：进程数、SSH 连接数随主机数线性。10+ 主机场景请等 future work。
 
 ## 15. 未来工作
