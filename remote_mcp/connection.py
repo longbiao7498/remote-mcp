@@ -15,17 +15,38 @@ class ExecResult:
 
 
 class SSHConnection:
-    def __init__(self, config: HostConfig):
+    def __init__(self, config: HostConfig, jump_config: Optional[HostConfig] = None):
         self.config = config
+        self.jump_config = jump_config
         self._transport: Optional[paramiko.Transport] = None
         self._client: Optional[paramiko.SSHClient] = None
         self._sftp: Optional[paramiko.SFTPClient] = None
+        self._jump_client: Optional[paramiko.SSHClient] = None
         self._reconnected: bool = False
 
     def connect(self) -> None:
         """Build the SSH client + Transport. Idempotent: closes any prior."""
         if self._client is not None:
             self.close()
+
+        sock = None
+        if self.jump_config is not None:
+            self._jump_client = paramiko.SSHClient()
+            self._jump_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            j_kwargs = {
+                "hostname": self.jump_config.hostname,
+                "port": self.jump_config.port,
+                "username": self.jump_config.user,
+                "timeout": self.jump_config.connect_timeout,
+            }
+            if self.jump_config.key_path:
+                j_kwargs["key_filename"] = self.jump_config.key_path
+            self._jump_client.connect(**j_kwargs)
+            sock = self._jump_client.get_transport().open_channel(
+                "direct-tcpip",
+                (self.config.hostname, self.config.port),
+                ("localhost", 0),
+            )
 
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -36,6 +57,8 @@ class SSHConnection:
             "timeout": self.config.connect_timeout,
             "compress": self.config.compression,
         }
+        if sock is not None:
+            connect_kwargs["sock"] = sock
         if self.config.key_path:
             connect_kwargs["key_filename"] = self.config.key_path
         if self.config.password:
@@ -78,3 +101,9 @@ class SSHConnection:
                 pass
             self._client = None
             self._transport = None
+        if self._jump_client is not None:
+            try:
+                self._jump_client.close()
+            except Exception:
+                pass
+            self._jump_client = None
