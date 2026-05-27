@@ -6,6 +6,34 @@ A local Python MCP server that proxies file and shell tools to a remote Linux ho
 
 When your code lives on a server that only allows SSH, and you don't want to install anything on it, this bridges the gap.
 
+## What makes it different
+
+Other ways to give Claude Code remote access either need software installed on the remote (often not allowed on locked-down prod / GPU / HPC boxes) or work through raw SSH with no MCP integration (no `Read`/`Edit`/`Grep` tools, no persistent shell, terrible bandwidth profile). `remote-mcp` threads that needle:
+
+**🔓 Works anywhere SSH does**
+- **Zero install on the remote** — if you can `ssh user@host`, this works. No agent, no daemon, no container, no root needed. Perfect for prod boxes, shared HPC nodes, customer servers you don't admin.
+- Pure local Python. Nothing to maintain on the remote side.
+
+**🎯 Tools that feel native to the agent**
+- 7 of 10 tools (`Read`, `Write`, `Edit`, `MultiEdit`, `Bash`, `Glob`, `Grep`) match Claude Code's built-in schemas verbatim — same parameters, same output formats, same error wording. The agent uses them naturally; no retraining, no "remote mode" prompt engineering needed.
+- Multi-host first-class: each registered host is its own `mcp__remote-<name>__` namespace. The agent knows what's where.
+
+**⚡ Built for slow / lossy networks** (the design hinges on this)
+- **Server-side `sed` slicing for `Read`** — fetching 20 lines from a 100 MB file transfers a few KB, not 100 MB.
+- **SSH compression on by default** — 3-10× savings on text, free.
+- **`MultiRead`** batches N file reads into one round-trip; **`MultiEdit`** does N edits with one read + one write.
+- **`Grep -A/-B/-C` context** — agent doesn't need a follow-up `Read` to see surrounding code.
+- **`FileStat`** returns metadata in a few bytes (vs `Read`-ing the file just to check existence/size).
+- **Background `Bash`** (`run_in_background=true`) — start a 10-min build / `npm install` / training run without blocking the agent's conversation.
+
+**🛡 Survives the messy parts of remote work**
+- **Persistent shell state** — `cd`, `export`, sourced files all persist across `Bash` tool calls. No naive per-call SSH that loses state.
+- **Auto-reconnect with explicit warning** — when SSH drops (VPN blip, idle timeout), connection rebuilds automatically AND the next tool result is prefixed with `[WARNING] SSH connection to <host> was lost ... cwd is now $HOME, env vars lost`. Agent doesn't silently keep using stale paths.
+- **Clean process-group kill for background jobs** — `kill -- -<pid>` takes down spawned children too (the wrapper uses `setsid`).
+
+**🔁 Self-improving dev loop**
+- A built-in `Feedback` tool lets the agent file bug/enhancement notes about `remote-mcp` itself, into a local JSONL — no telemetry, purely a maintainer-readable file. Two of the changes in the current [Unreleased] window (Grep skipping binaries, Edit listing line numbers in errors) came directly from agent feedback during testing.
+
 ## Requirements
 
 - Python 3.8+

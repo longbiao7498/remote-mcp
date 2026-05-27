@@ -6,6 +6,34 @@
 
 当你的代码在一台只开放 SSH 的服务器上、又不想往上面装任何东西时，这个项目就是补这个缝的。
 
+## 这个项目的特点
+
+其他让 Claude Code 操控远程的方案，要么需要在远程装东西（生产/GPU/HPC 主机上往往不允许），要么走裸 SSH 但没有 MCP 集成（没 `Read`/`Edit`/`Grep`、不保留 shell 状态、带宽利用糟糕）。`remote-mcp` 卡在中间这个缝里：
+
+**🔓 SSH 可达的地方它都能用**
+- **远程零安装**——能 `ssh user@host` 的地方就能用。不需要 agent、不需要守护进程、不需要容器、不需要 root。适合生产主机、共享 HPC 节点、你管不到的客户服务器。
+- 纯本地 Python。远程那头不需要维护任何东西。
+
+**🎯 工具对 agent 而言"像原生"**
+- 10 个工具里有 7 个（`Read`、`Write`、`Edit`、`MultiEdit`、`Bash`、`Glob`、`Grep`）逐字对齐 Claude Code 内置工具的 schema——参数、输出格式、错误措辞完全一致。agent 拿来就用，不需要重新训练，也不需要"远程模式"的特殊提示工程。
+- 多主机一等公民：每台已注册的主机有独立的 `mcp__remote-<name>__` 命名空间，agent 一眼能看出操作的是哪台。
+
+**⚡ 为慢/不稳网络设计**（整个设计的核心约束）
+- **`Read` 服务器端 `sed` 切片**——从 100 MB 的文件取 20 行，传输几 KB 而不是 100 MB。
+- **SSH 压缩默认开启**——文本流量 3-10× 压缩，免费。
+- **`MultiRead`** 把 N 个文件读合并为一次往返；**`MultiEdit`** 把 N 次编辑合并为一次读+一次写。
+- **`Grep -A/-B/-C` 上下文**——agent 不必再跟一次 `Read` 看附近代码。
+- **`FileStat`** 几字节返回元信息（避免为了知道文件是否存在/多大就 `Read` 整个文件）。
+- **后台 `Bash`**（`run_in_background=true`）——启动 10 分钟的构建 / `npm install` / 训练任务不阻塞 agent 的对话。
+
+**🛡 扛得住远程工作里的脏活**
+- **持久 shell 状态**——`cd`、`export`、`source` 过的文件在多次 `Bash` 调用之间持久。不是裸 SSH 那种每次调用丢状态。
+- **自动重连 + 显式 WARNING**——SSH 断了（VPN 抖、空闲超时），连接自动重建，**并且**下一次工具结果前缀加 `[WARNING] SSH connection to <host> was lost ... cwd is now $HOME, env vars lost`。agent 不会傻乎乎继续用过期路径。
+- **后台任务进程组干净 kill**——`kill -- -<pid>` 把派生的子进程一起干掉（包装用 `setsid`）。
+
+**🔁 自我改进的反馈循环**
+- 内置的 `Feedback` 工具让 agent 在工作过程中把 bug/灵感记到本地 JSONL——没有 telemetry，纯粹是维护者读的文件。当前 [Unreleased] 窗口里的两个改动（Grep 跳过二进制、Edit 错误列行号）都是 agent 测试中直接反馈来的。
+
 ## 环境要求
 
 - Python 3.8+
