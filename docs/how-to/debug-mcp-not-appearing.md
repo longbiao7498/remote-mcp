@@ -85,15 +85,17 @@ You ran `claude mcp add` and restarted Claude Code, but none of the `mcp__remote
 
    Tools are loaded at startup. A "restart" must be a full quit-and-relaunch, not just closing and reopening a tab. After launching, wait for the MCP servers to initialize (a few seconds) before checking for tools.
 
-6. **Check Claude Code's MCP server logs**
+6. **Run Claude Code in debug mode to see MCP server stderr live**
 
-   Claude Code writes MCP server stderr to a log file. Location varies by platform; on Linux:
+   Launch Claude Code from a terminal with the `--debug` flag (or `--debug mcp` to filter to just MCP-related output):
 
    ```bash
-   ls ~/.claude/logs/
+   claude --debug mcp
    ```
 
-   Look for a file named after your MCP server entry. Any Python traceback there points directly to the problem.
+   This streams MCP server startup messages and stderr directly to your terminal. Any Python traceback from `remote-mcp` will appear there at startup. (Earlier versions of Claude Code had a separate `--mcp-debug` flag — it's now deprecated and folded into `--debug`.)
+
+   For verifying the registration entry itself (without running Claude Code), use `claude mcp list` from any shell — it prints each registered server with a `✓ Connected` or `✗ Failed to connect` indicator that includes a one-line reason on failure.
 
 ## Verification
 

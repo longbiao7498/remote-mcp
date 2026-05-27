@@ -91,29 +91,21 @@ That is the complete minimal config. Save the file.
 
 ## Step 3 — Smoke-test the connection
 
-Run the built-in test to verify that remote-mcp can connect to your host and all tools pass a quick sanity check.
+Run the built-in test. It does a quick end-to-end probe: connect over SSH, run `echo OK` on the remote, confirm the result.
 
 ```bash
 python -m remote_mcp --host myserver --test
 ```
 
-You should see:
+You should see exactly one line:
 
 ```
-Connecting to myserver (alice@your-host.example.com)... OK
-Testing exec channel... OK
-Testing SFTP... OK
-Testing bash session... OK
-Testing Read... OK
-Testing Write... OK
-Testing Edit... OK
-Testing Glob... OK
-Testing Grep... OK
-
 Connected to myserver (alice@your-host.example.com). All tools: OK
 ```
 
-If you see `All tools: OK`, the connection is healthy and every tool path works. You are ready to register with Claude Code.
+(`All tools: OK` is a fixed string the test prints when the probe succeeds — it doesn't mean every individual tool was exercised; the real test of each tool happens when you call it from Claude Code in Step 6.)
+
+If you see this line, the SSH side is healthy and you're ready to register.
 
 If you see an error instead, stop here. Check that `ssh alice@your-host.example.com` works from the same terminal session before continuing. Common fixes are in the [Troubleshooting how-to](../how-to/debug-mcp-not-appearing.md).
 
@@ -127,13 +119,7 @@ Run `claude mcp add` to register this host as an MCP server. The `--scope user` 
 claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
 ```
 
-You should see:
-
-```
-MCP server "remote-myserver" added to global config.
-```
-
-That is the only command needed. Claude Code stores the server entry; it will start the remote-mcp process automatically when you next open Claude Code.
+The command prints a short confirmation that the server was added (exact wording varies by Claude Code version). That's all you need to do — Claude Code stores the entry and will start the `remote-mcp` process automatically when it next launches.
 
 **Heads-up — the command has two tokens you choose, and they happen to look the same in this tutorial.** Separating user-chosen tokens from fixed CLI syntax:
 
@@ -152,30 +138,23 @@ We picked matching names on purpose for this tutorial — it's the least confusi
 
 ## Step 5 — Restart Claude Code
 
-Close Claude Code completely and reopen it. The tool list is loaded at startup — a running Claude Code session does not pick up new MCP servers.
+Close Claude Code completely and reopen it. The MCP server list is loaded at startup — a running Claude Code session does not pick up newly-added servers.
 
-After restart, open any Claude Code project. In the tool picker (or by typing a slash command), you can verify the tools are registered:
+After restart, verify the server is registered and healthy. Run from your shell:
 
-```
-/tools
-```
-
-Scroll the list until you see entries starting with `mcp__remote-myserver__`. You should find all ten:
-
-```
-mcp__remote-myserver__Read
-mcp__remote-myserver__Write
-mcp__remote-myserver__Edit
-mcp__remote-myserver__MultiEdit
-mcp__remote-myserver__MultiRead
-mcp__remote-myserver__FileStat
-mcp__remote-myserver__Bash
-mcp__remote-myserver__Glob
-mcp__remote-myserver__Grep
-mcp__remote-myserver__Feedback
+```bash
+claude mcp list
 ```
 
-If you see these ten tools, Claude Code has successfully loaded the server.
+You should see an entry like:
+
+```
+remote-myserver: python -m remote_mcp --host myserver - ✓ Connected
+```
+
+The `✓ Connected` status means Claude Code successfully spawned the server and the MCP handshake completed. The 10 tools (`mcp__remote-myserver__Read`, `mcp__remote-myserver__Write`, ..., `mcp__remote-myserver__Feedback`) are now available to the agent in any Claude Code project.
+
+If you see `✗ Failed to connect` instead, the server is registered but couldn't be spawned successfully — see the [Debug: MCP tools not appearing](../how-to/debug-mcp-not-appearing.md) guide.
 
 ---
 

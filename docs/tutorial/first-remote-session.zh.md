@@ -91,29 +91,21 @@ default_host: myserver
 
 ## 第三步 — 测试连接
 
-运行内置测试，验证 remote-mcp 能够连接到你的主机，并且所有工具都通过快速健全性检查。
+运行内置测试，它做一次端到端探测：SSH 连过去、在远程跑一句 `echo OK`、确认结果。
 
 ```bash
 python -m remote_mcp --host myserver --test
 ```
 
-你应该看到：
+你应该看到**正好一行**：
 
 ```
-Connecting to myserver (alice@your-host.example.com)... OK
-Testing exec channel... OK
-Testing SFTP... OK
-Testing bash session... OK
-Testing Read... OK
-Testing Write... OK
-Testing Edit... OK
-Testing Glob... OK
-Testing Grep... OK
-
 Connected to myserver (alice@your-host.example.com). All tools: OK
 ```
 
-看到 `All tools: OK`，说明连接正常，所有工具路径均可用。你已经准备好向 Claude Code 注册了。
+（`All tools: OK` 是探测成功时打印的固定字符串——并不代表每个工具单独被测过；每个工具的真实测试发生在第六步从 Claude Code 调用它时。）
+
+看到这一行就说明 SSH 端没问题，可以注册了。
 
 如果出现错误，请在此停下来。先从同一个终端会话中确认 `ssh alice@your-host.example.com` 可以正常运行，再继续操作。常见的修复方法请参阅[故障排查指南](../how-to/debug-mcp-not-appearing.md)。
 
@@ -127,13 +119,7 @@ Connected to myserver (alice@your-host.example.com). All tools: OK
 claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
 ```
 
-你应该看到：
-
-```
-MCP server "remote-myserver" added to global config.
-```
-
-只需这一条命令。Claude Code 会保存服务器条目，并在你下次打开 Claude Code 时自动启动 remote-mcp 进程。
+命令会打印一条简短的注册成功提示（具体措辞因 Claude Code 版本不同而异）。这一条命令就够了——Claude Code 会保存服务器条目，并在下次启动时自动拉起 `remote-mcp` 进程。
 
 **注意——这条命令里有两个你自己选的 token，本教程里恰好长得一样。** 把"你选的"和"固定 CLI 语法"分开看：
 
@@ -152,30 +138,23 @@ claude mcp add --scope user  remote-myserver  --  python -m remote_mcp --host  m
 
 ## 第五步 — 重启 Claude Code
 
-完全关闭 Claude Code 并重新打开。工具列表在启动时加载——正在运行的 Claude Code 会话不会自动识别新注册的 MCP 服务器。
+完全关闭 Claude Code 并重新打开。MCP 服务器列表在启动时加载——正在运行的 Claude Code 会话不会自动识别新注册的服务器。
 
-重启后，打开任意 Claude Code 项目。在工具选择器中（或通过输入斜杠命令），你可以验证工具已成功注册：
+重启后，从 shell 验证服务器已注册且健康：
 
-```
-/tools
-```
-
-滚动列表，直到看到以 `mcp__remote-myserver__` 开头的条目。你应该能找到全部十个：
-
-```
-mcp__remote-myserver__Read
-mcp__remote-myserver__Write
-mcp__remote-myserver__Edit
-mcp__remote-myserver__MultiEdit
-mcp__remote-myserver__MultiRead
-mcp__remote-myserver__FileStat
-mcp__remote-myserver__Bash
-mcp__remote-myserver__Glob
-mcp__remote-myserver__Grep
-mcp__remote-myserver__Feedback
+```bash
+claude mcp list
 ```
 
-看到这十个工具，说明 Claude Code 已成功加载服务器。
+你应该看到类似一行：
+
+```
+remote-myserver: python -m remote_mcp --host myserver - ✓ Connected
+```
+
+`✓ Connected` 说明 Claude Code 成功拉起了服务器并完成了 MCP 握手。10 个工具（`mcp__remote-myserver__Read`、`mcp__remote-myserver__Write`、...、`mcp__remote-myserver__Feedback`）现在在任意 Claude Code 项目中都可被 agent 调用。
+
+如果看到 `✗ Failed to connect`，说明服务器已注册但无法成功启动——参见 [调试：MCP 工具未出现](../how-to/debug-mcp-not-appearing.zh.md)。
 
 ---
 

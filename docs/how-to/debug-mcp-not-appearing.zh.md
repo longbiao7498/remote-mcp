@@ -85,15 +85,17 @@
 
    工具在启动时加载。"重启"必须是完整的退出并重新启动，而不是关闭再打开标签页。启动后等待 MCP 服务器初始化完成（几秒钟）再检查工具是否出现。
 
-6. **查看 Claude Code 的 MCP 服务器日志**
+6. **用 debug 模式启动 Claude Code，实时看 MCP 服务器 stderr**
 
-   Claude Code 将 MCP 服务器的 stderr 写入日志文件。位置因平台而异；在 Linux 上：
+   从终端用 `--debug` 启动（或 `--debug mcp` 过滤只看 MCP 相关输出）：
 
    ```bash
-   ls ~/.claude/logs/
+   claude --debug mcp
    ```
 
-   查找以你的 MCP 服务器条目名命名的文件。其中的任何 Python 错误回溯都直接指向问题所在。
+   这会把 MCP 服务器的启动消息和 stderr 直接打到你的终端上。`remote-mcp` 启动时任何 Python 回溯都会在这里显现。（早期 Claude Code 有一个单独的 `--mcp-debug` 标志——现已弃用，并入 `--debug`。）
+
+   仅要验证注册条目本身（不启动 Claude Code），从任意 shell 跑 `claude mcp list`——它会列出每个已注册服务器，附带 `✓ Connected` 或 `✗ Failed to connect` 状态指示，失败时会带一行原因。
 
 ## 验证
 
