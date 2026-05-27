@@ -1,0 +1,103 @@
+# 调试：MCP 工具未出现在 Claude Code 中
+
+> English version: [debug-mcp-not-appearing.md](./debug-mcp-not-appearing.md)
+
+## 适用场景
+
+你已运行 `claude mcp add` 并重启了 Claude Code，但 `mcp__remote-<host>__*` 系列工具均未出现。本指南按可能性从高到低依次列出诊断步骤。
+
+## 前置条件
+
+- 你执行过的确切 `claude mcp add` 命令（用于核对拼写）
+- 可执行诊断命令的终端访问权限
+
+## 步骤
+
+1. **确认 MCP 服务器条目存在**
+
+   ```bash
+   claude mcp list
+   ```
+
+   查找类似 `remote-prod` 的条目。如果没有，说明 `claude mcp add` 命令未完成执行——重新运行：
+
+   ```bash
+   claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+   ```
+
+2. **验证服务器进程能正常启动**
+
+   工具列表只有在 MCP 服务器进程正常启动后才会填充。手动运行：
+
+   ```bash
+   python -m remote_mcp --host prod
+   ```
+
+   正常情况下应挂起等待 stdio 输入（按 Ctrl-C 退出）。如果立即报错退出，问题出在启动阶段——先修复错误再继续。
+
+   常见启动错误：
+
+   | 错误信息 | 原因 | 修复方法 |
+   |---------------|-------|-----|
+   | `No module named remote_mcp` | Python 解释器不对 | 用 `python -m pip install -e .` 对齐 pip 和 python |
+   | `Config file not found` | 配置文件缺失或路径错误 | 创建 `~/.config/remote-mcp/config.yaml` |
+   | `Host 'prod' not found in config` | `--host` 拼写错误或缺少主机键 | 检查配置 YAML 键名是否匹配 |
+   | `FileNotFoundError: ... key_path` | 密钥文件路径错误或文件不存在 | 验证配置中的 `key_path` 展开后是否正确 |
+
+3. **单独测试 SSH 连接**
+
+   ```bash
+   python -m remote_mcp --host prod --test
+   ```
+
+   预期输出：`Connected to prod (ubuntu@192.168.1.100). All tools: OK`
+
+   如果失败，先修复 SSH/配置问题。服务器无法连接时，工具不会出现。
+
+4. **检查 `claude mcp add` 注册的是哪个 Python**
+
+   Claude Code 完全按照注册时的命令启动进程。如果你用 `python` 注册，但正确的解释器是 `python3` 或虚拟环境路径，进程将静默失败。
+
+   在 shell 中验证 `python` 解析到哪里：
+
+   ```bash
+   which python
+   python --version
+   ```
+
+   如需修正，用完整路径重新注册：
+
+   ```bash
+   claude mcp remove remote-prod
+   claude mcp add --global remote-prod -- /usr/bin/python3 -m remote_mcp --host prod
+   ```
+
+5. **完全重启 Claude Code**
+
+   工具在启动时加载。"重启"必须是完整的退出并重新启动，而不是关闭再打开标签页。启动后等待 MCP 服务器初始化完成（几秒钟）再检查工具是否出现。
+
+6. **查看 Claude Code 的 MCP 服务器日志**
+
+   Claude Code 将 MCP 服务器的 stderr 写入日志文件。位置因平台而异；在 Linux 上：
+
+   ```bash
+   ls ~/.claude/logs/
+   ```
+
+   查找以你的 MCP 服务器条目名命名的文件。其中的任何 Python 错误回溯都直接指向问题所在。
+
+## 验证
+
+修复问题并重启后，在 Claude Code 中确认：
+
+```
+mcp__remote-prod__Bash("echo ok")
+```
+
+应返回 `[host=prod cwd=/home/ubuntu]\nok`。
+
+## 常见问题排查
+
+- **条目出现在 `claude mcp list` 中但仍无工具** — 进程已注册但在发送工具列表之前崩溃了。检查 Claude Code 的 MCP 日志文件（上方步骤 6）。
+- **工具出现但调用报错** — 服务器在运行但 SSH 连接失败。重新运行 `python -m remote_mcp --host prod --test` 定位 SSH 问题。
+- **在终端中正常但在 Claude Code 中不行** — Claude Code 可能使用不同的 `PATH` 或 `HOME`。如有需要，为解释器和 `--config` 均注册绝对路径。
