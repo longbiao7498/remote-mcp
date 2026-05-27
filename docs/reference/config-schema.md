@@ -31,6 +31,7 @@ Each key under `hosts` is the logical host name (used in `--host` and in `[WARNI
 | `glob_output_limit` | integer | No | `1000` | Maximum number of file paths returned by the Glob tool before truncation. |
 | `read_size_cap` | integer | No | `262144` | Maximum bytes of output returned by Read and MultiRead before truncation (default 256 KB). |
 | `bash_output_cap` | integer | No | `102400` | Maximum bytes of output returned by Bash before truncation (default 100 KB). |
+| `transfer_size_cap` | int | No | 104857600 (100 MB) | Maximum file size in bytes that `Upload` or `Download` will transfer. Files larger than this return an `Error:` string that includes a ready-to-paste `Bash + scp` command. Raise this if you need larger transfers and don't want to switch to scp. |
 
 ## Minimal example
 

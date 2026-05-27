@@ -22,6 +22,7 @@ This project operates a remote server through `mcp__remote-<host>__*` tools. The
   - When the task is done (or you've decided to abandon it), **always `Bash("kill -TERM -- -<pid>")` to clean up**.
 - For foreground Bash long operations, set a large explicit timeout (e.g. 600s); if it might take more than a few minutes, just use `run_in_background`.
 - Be careful with high-output commands: `find /`, `ls -R /`, `grep -r common-word /` will flood the bandwidth — think before you run.
+- For file transfers (binary or large): **prefer `Bash("scp <local> <user>@<host>:<remote>", run_in_background=true)`** over the `Upload` / `Download` tools. scp/rsync are non-blocking when launched in background and support any file size. The `Upload`/`Download` tools are a Windows fallback for users without scp in PATH, and they're capped at `transfer_size_cap` (default 100 MB). On Linux/macOS, scp wins on every axis.
 
 ### Multi-host mode (2-3 hosts at once)
 

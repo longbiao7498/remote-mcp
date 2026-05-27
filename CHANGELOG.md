@@ -6,7 +6,7 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] - Unreleased
 
 ### Changed
 
@@ -16,9 +16,25 @@ Driven by agent feedback (the `Feedback` tool's first real-use entries — see `
 
 - **Edit and MultiEdit `found N times` error now lists matching line numbers.** Wording was previously: `Error: old_string found 3 times in <path>. Provide more context to match uniquely, or set replace_all=true to replace all.` It's now: `Error: old_string found 3 times in <path> (lines 19, 20, 21). Provide more context to match uniquely, or set replace_all=true to replace all.` Lists are capped at the first 10 matches, then suffix `..., ... +K more`. Saves the agent a follow-up Grep when it intended a unique replace. Same enhancement applied to MultiEdit's per-edit error. *Suggested by agent during the same test session.*
 
+### Added — Three new tools (count 10 → 13)
+
+- **`Upload(local_path, remote_path)`** — push a local file to the remote via SFTP. Binary-safe. Preflight checks for existence, type (must be a file), and size (must be ≤ `transfer_size_cap`). Parent directories on the remote are auto-created. For Linux/macOS, the tool description and oversized-file error both steer the agent to `Bash("scp ...", run_in_background=true)` instead — non-blocking, no size limit, resumable. Upload is the Windows-without-scp fallback.
+
+- **`Download(remote_path, local_path)`** — pull a remote file to local via SFTP. Symmetric to Upload (same cap, same scp guidance). Pre-checks remote existence and size via SFTP `stat`. Local parent directory must already exist (not auto-created — asymmetric with Upload).
+
+- **`RemoteInfo()`** — return the connection's configured identity in 5 `key=value` lines (`host`, `user`, `hostname`, `port`, `jump_host`). **Issues no SSH call** — reads `conn.config`. VPN-safe: in VPN scenarios the remote's `hostname -I` returns internal-network IPs that don't match the IP the client uses; this tool returns the latter.
+
+### Added — config
+
+- `HostConfig.transfer_size_cap` — int, default `100 * 1024 * 1024` (100 MB). Caps `Upload` / `Download` per-file size. Files larger return an `Error: ...` with a ready-to-paste `Bash + scp` command.
+
+### Changed — guidance
+
+- `CLAUDE.md.fragment.md`: new rule advising agents to prefer `Bash + scp` for transfers on Linux/macOS; Upload/Download positioned explicitly as Windows fallback.
+
 ### Notes
 
-The class of bug found in pre-release docs is also documented for posterity: the doc-writing pass mistakenly invented several external-tool specifics (a `--global` flag, a `/tools` slash command, the `~/.claude/logs/` log path, a fabricated multi-line `--test` output). All were caught by an expert audit and corrected; the corrections are in this same `[Unreleased]` window. The lesson informs the project's writing convention going forward: any CLI / path / output-format claim about an external tool must be verified by running the command, reading source, or fetching docs — not guessed.
+The class of bug found in pre-release docs is also documented for posterity: the doc-writing pass mistakenly invented several external-tool specifics (a `--global` flag, a `/tools` slash command, the `~/.claude/logs/` log path, a fabricated multi-line `--test` output). All were caught by an expert audit and corrected; the corrections are in this same `[0.1.1]` window. The lesson informs the project's writing convention going forward: any CLI / path / output-format claim about an external tool must be verified by running the command, reading source, or fetching docs — not guessed.
 
 ## [0.1.0] - 2026-05-26
 

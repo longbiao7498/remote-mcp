@@ -23,6 +23,7 @@
   - 任务做完或确定不要了，**务必用 `Bash("kill -TERM -- -<pid>")` 收尾**。
 - 前台 Bash 长操作显式设大 timeout（如 600s）；可能拖到几分钟以上的直接用 `run_in_background`。
 - 大输出命令要谨慎：`find /`、`ls -R /`、`grep -r 通用词 /` 会刷爆带宽，先想清楚再发。
+- 文件传输（二进制或大文件）：**优先 `Bash("scp <local> <user>@<host>:<remote>", run_in_background=true)`** 而不是 `Upload` / `Download` 工具。scp/rsync 在后台模式下非阻塞、不限大小。`Upload`/`Download` 是给 PATH 中无 scp 的 Windows 用户的兜底，且受 `transfer_size_cap` 限制（默认 100 MB）。Linux/macOS 上 scp 在每个维度都更好。
 
 ### 多主机模式（2-3 台同时操作时）
 - 工具调用结果会有 `[host=X cwd=Y]` 前缀，注意辨认当前操作的是哪台主机。

@@ -22,6 +22,9 @@ remote-mcp 所暴露的每个工具对应一个页面。每个页面记录：完
 | [Glob](./tools/glob.md) | 查找匹配 glob 模式的文件（服务端 `find`） |
 | [Grep](./tools/grep.md) | 搜索文件内容中的正则表达式（服务端 `grep`，支持上下文） |
 | [Feedback](./tools/feedback.md) | 在本地记录关于 remote-mcp 本身的 bug/改进建议 |
+| [Upload](./tools/upload.zh.md) | 通过 SFTP 把本地文件推到远程（二进制安全）。Windows 兜底；Linux 优先 Bash + scp。 |
+| [Download](./tools/download.zh.md) | 通过 SFTP 把远程文件拉到本地（二进制安全）。Windows 兜底；Linux 优先 Bash + scp。 |
+| [RemoteInfo](./tools/remote-info.zh.md) | 返回连接的已配置身份（host、user、hostname、port、jump_host）。不发 SSH——VPN 安全。 |
 
 ## 系统参考
 

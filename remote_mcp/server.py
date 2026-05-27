@@ -19,6 +19,9 @@ from .tools import grep as grep_tool
 from .tools import multi_edit as multi_edit_tool
 from .tools import multi_read as multi_read_tool
 from .tools import read as read_tool
+from .tools import upload as upload_tool
+from .tools import download as download_tool
+from .tools import remote_info as remote_info_tool
 from .tools import write as write_tool
 
 
@@ -80,6 +83,12 @@ def _raw_dispatch(name: str, args: dict) -> str:
         return feedback_tool.feedback(
             _conn, _root_config.feedback_path, **args
         )
+    if name == "Upload":
+        return upload_tool.upload(_conn, **args)
+    if name == "Download":
+        return download_tool.download(_conn, **args)
+    if name == "RemoteInfo":
+        return remote_info_tool.remote_info(_conn, **args)
     return f"Error: unknown tool: {name}"
 
 

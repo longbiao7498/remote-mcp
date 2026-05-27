@@ -22,7 +22,7 @@ def runtime_config(sshd_container, ssh_key, tmp_path):
     return root
 
 
-def test_list_tools_returns_ten(runtime_config):
+def test_list_tools_returns_thirteen(runtime_config):
     srv._init_for_test(runtime_config, "test")
     try:
         tools = asyncio.run(srv.list_tools())
@@ -30,7 +30,20 @@ def test_list_tools_returns_ten(runtime_config):
         assert set(names) == {
             "Read", "Write", "Edit", "MultiEdit", "MultiRead", "FileStat",
             "Bash", "Glob", "Grep", "Feedback",
+            "Upload", "Download", "RemoteInfo",
         }
+    finally:
+        srv._teardown_for_test()
+
+
+def test_call_tool_dispatches_remote_info(runtime_config):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        result = asyncio.run(srv.call_tool("RemoteInfo", {}))
+        text = result[0].text
+        assert "host=test" in text
+        assert "user=" in text
+        assert "hostname=" in text
     finally:
         srv._teardown_for_test()
 
