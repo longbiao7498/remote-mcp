@@ -6,8 +6,21 @@ from ..connection import SSHConnection
 
 def apply_edits(content: str, edits: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
     """
-    Apply edits sequentially. Atomic: any failure returns (None, error_msg).
-    Returns (new_content, None) on success.
+    Apply a sequence of edits atomically to file content.
+
+    Each edit specifies old_string, new_string, and optionally replace_all.
+    Edits are applied in order; if any edit fails, the entire operation aborts
+    without modifying the original content. On success, returns the fully
+    modified content.
+
+    Args:
+        content: the full file content as a string.
+        edits: list of edit dicts, each with 'old_string', 'new_string',
+            and optional 'replace_all' (default False).
+
+    Returns:
+        (modified_content, None) on success.
+        (None, error_msg) on failure — error_msg begins with "Error: edit #N: ...".
     """
     current = content
     for i, e in enumerate(edits, start=1):
@@ -33,6 +46,30 @@ def apply_edits(content: str, edits: List[Dict]) -> Tuple[Optional[str], Optiona
 
 def multi_edit(conn: SSHConnection, file_path: str,
                edits: List[Dict]) -> str:
+    """
+    Apply multiple edits to a single file via a single SFTP read-write cycle.
+
+    Reads the file once, applies all edits in sequence, and writes back.
+    More efficient than calling Edit multiple times. Failures are atomic —
+    if any edit fails, the file is unchanged.
+
+    Args:
+        conn: established SSHConnection.
+        file_path: absolute path on the remote host.
+        edits: list of edit dicts. Each has 'old_string', 'new_string',
+            and optional 'replace_all' (default False, meaning exact uniqueness
+            required unless replace_all=True).
+
+    Returns:
+        `"Successfully applied <N> edits to <file_path>"` on success.
+        `"Error: File not found: <file_path>"` if the file doesn't exist.
+        `"Error: edits list is empty"` if edits is [].
+        `"Error: edit #N: old_string not found"` if edit N's old_string
+            doesn't match the (partially-modified) content.
+        `"Error: edit #N: old_string found M times. Provide more context or
+            set replace_all=true."` if replace_all is False and the match is
+            ambiguous.
+    """
     if not edits:
         return "Error: edits list is empty"
     sftp = conn.get_sftp()

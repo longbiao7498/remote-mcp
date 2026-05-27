@@ -36,6 +36,26 @@ def _glob_to_find_expr(pattern: str) -> str:
 
 
 def glob_tool(conn: SSHConnection, pattern: str, path: str = ".") -> str:
+    """
+    Find files matching a glob pattern on the remote host.
+
+    Translates the glob pattern to a `find` command and returns sorted results.
+    Patterns like `*.txt`, `dir/**/*.py`, and `**/config.yaml` are supported.
+    Note: `**` (globstar) matches at any depth but filename only, not full
+    recursive paths with directory separators — see design spec §9 for details.
+
+    Args:
+        conn: established SSHConnection.
+        pattern: shell glob pattern (e.g., `*.txt`, `dir/**/config`).
+        path: starting directory for the search. Default ".".
+
+    Returns:
+        Sorted newline-delimited list of matching file paths.
+        `"No files found matching pattern"` if no matches.
+        `"... [truncated to <limit> entries]"` if output exceeds
+            `conn.config.glob_output_limit` (default 1000).
+        `"Error: ..."` on find command failures (e.g., permission, invalid path).
+    """
     find_expr = _glob_to_find_expr(pattern)
     limit = conn.config.glob_output_limit
     # Use bash -c so the quoting in find_expr is preserved

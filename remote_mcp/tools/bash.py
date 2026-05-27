@@ -10,6 +10,33 @@ def bash(conn: SSHConnection, command: str,
          run_in_background: bool = False,
          timeout: float = None,
          description: str = "") -> str:
+    """
+    Execute a shell command on the remote host.
+
+    Foreground mode (default): runs in the persistent bash session,
+    blocks until done or timeout, returns combined output prefixed with
+    `[host=<name> cwd=<pwd>]`. Shell state (cwd, env) persists across
+    foreground calls within the same SSH connection.
+
+    Background mode (`run_in_background=True`): wraps the command in
+    `setsid nohup ... &`, returns immediately with PID and log path.
+    Use the returned `kill -- -<pid>` command to stop (kills the whole
+    process group). See `_bash_background` for details.
+
+    Args:
+        conn: established SSHConnection.
+        command: the user's shell command (verbatim — no extra quoting).
+        run_in_background: if True, start as a backgrounded process group.
+        timeout: foreground timeout in seconds. None → use
+            `conn.config.bash_timeout_default` (default 120).
+        description: informational label (not used internally; kept for
+            MCP schema compatibility with Claude Code's native Bash).
+
+    Returns:
+        Output string. Errors return `"Error: ..."` (never raises).
+        Output is capped at `conn.config.bash_output_cap` bytes (default
+        100 KB); excess is truncated with a `[truncated to N bytes]` note.
+    """
     if timeout is None:
         timeout = float(conn.config.bash_timeout_default)
     if run_in_background:
@@ -18,6 +45,7 @@ def bash(conn: SSHConnection, command: str,
 
 
 def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
+    """Run `command` synchronously in the persistent bash session."""
     session = conn.get_bash_session()
     try:
         result = session.execute(command, timeout=timeout)

@@ -15,6 +15,32 @@ def grep_tool(conn: SSHConnection, pattern: str, path: str,
               context: int = 0,
               head_limit: int = 200,
               output_mode: str = "content") -> str:
+    """
+    Search for a pattern recursively in files on the remote host.
+
+    Runs `grep -rn -E <pattern> <path>` with optional context lines and
+    file filtering. Three output modes: "content" (lines with matches),
+    "files_with_matches" (just filenames), "count" (match count per file).
+
+    Args:
+        conn: established SSHConnection.
+        pattern: extended regex pattern to search for.
+        path: starting directory or file for the search.
+        include: optional glob pattern for filename filtering (e.g., "*.py").
+        case_insensitive: if True, use grep -i.
+        before: number of lines before the match. Ignored if context > 0.
+        after: number of lines after the match. Ignored if context > 0.
+        context: if > 0, show this many lines before and after (overrides
+            before/after).
+        head_limit: max lines to return. Default 200.
+        output_mode: "content" (default), "files_with_matches", or "count".
+
+    Returns:
+        Formatted grep output (varies by output_mode).
+        `"No matches found"` if exit code is 1 (no match) or output is empty.
+        `"Error: <stderr>"` if exit code is 2 (grep error, e.g., invalid regex).
+        Output is truncated to head_limit lines.
+    """
     if output_mode not in _VALID_OUTPUT_MODES:
         return (
             f"Error: invalid output_mode: {output_mode!r}. "

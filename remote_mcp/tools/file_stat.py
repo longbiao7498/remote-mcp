@@ -8,6 +8,24 @@ from ..connection import SSHConnection
 
 def file_stat(conn: SSHConnection,
               file_paths: Union[str, List[str]]) -> str:
+    """
+    Query metadata for one or more remote files via SFTP stat.
+
+    Returns type (file/dir/symlink), size, mode (octal), and mtime (ISO 8601)
+    for each path. Use this to check existence and metadata without reading
+    file content — much faster than Read for a quick size/type check.
+
+    Args:
+        conn: established SSHConnection.
+        file_paths: a single path (str) or list of paths (List[str]).
+
+    Returns:
+        Lines in format: `<path>: exists=<bool> type=<kind> size=<bytes>
+            mode=<octal> mtime=<ISO8601>`
+        `<path>: exists=false` if the path doesn't exist.
+        `<path>: error=permission_denied` if stat fails due to permissions.
+        `"Error: file_paths is empty"` if an empty list is passed.
+    """
     if isinstance(file_paths, str):
         file_paths = [file_paths]
     if not file_paths:
