@@ -5,6 +5,7 @@ import pytest
 from remote_mcp.config import HostConfig
 from remote_mcp.connection import SSHConnection
 from remote_mcp.tools import upload as upload_tool
+from remote_mcp.tools import download as download_tool
 
 
 @pytest.fixture
@@ -77,3 +78,49 @@ def test_upload_remote_permission_denied(conn, tmp_path):
     out = upload_tool.upload(conn, str(local), "/etc/rmcp-cannot-write.txt")
     assert out.startswith("Error: Permission denied:")
     assert "/etc/rmcp-cannot-write.txt" in out
+
+
+def test_download_small_text_file(conn, tmp_path):
+    # Seed a remote file
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-download-1.txt", "w") as f:
+        f.write(b"hello download\n")
+    local = tmp_path / "downloaded.txt"
+    out = download_tool.download(conn, "/tmp/rmcp-download-1.txt", str(local))
+    assert out.startswith("Successfully downloaded")
+    assert "15 bytes" in out
+    assert local.read_text() == "hello download\n"
+
+
+def test_download_binary_file(conn, tmp_path):
+    sftp = conn.get_sftp()
+    raw = bytes(range(256)) * 4
+    with sftp.file("/tmp/rmcp-download-bin.bin", "wb") as f:
+        f.write(raw)
+    local = tmp_path / "blob.bin"
+    out = download_tool.download(conn, "/tmp/rmcp-download-bin.bin", str(local))
+    assert "1024 bytes" in out
+    assert local.read_bytes() == raw
+
+
+def test_download_remote_not_found(conn, tmp_path):
+    local = tmp_path / "x.txt"
+    out = download_tool.download(conn, "/tmp/this-does-not-exist-xyz", str(local))
+    assert out.startswith("Error: Remote file not found:")
+    assert "/tmp/this-does-not-exist-xyz" in out
+
+
+def test_download_exceeds_size_cap(conn, tmp_path):
+    conn.config.transfer_size_cap = 1024
+    sftp = conn.get_sftp()
+    with sftp.file("/tmp/rmcp-download-too-big.bin", "wb") as f:
+        f.write(b"y" * 2048)
+    local = tmp_path / "out.bin"
+    out = download_tool.download(conn, "/tmp/rmcp-download-too-big.bin", str(local))
+    assert out.startswith("Error: File too large for Download:")
+    assert "2048 bytes" in out
+    assert "1024 bytes" in out
+    assert "scp" in out
+    assert "run_in_background=true" in out
+    # Local must NOT have been created
+    assert not local.exists()
