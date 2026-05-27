@@ -64,3 +64,30 @@ def test_load_config_missing_default_host(tmp_path: Path):
 def test_load_config_file_not_found():
     with pytest.raises(FileNotFoundError):
         load_config("/nonexistent/config.yaml")
+
+
+def test_load_minimal_config_has_transfer_size_cap_default(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(textwrap.dedent("""
+        hosts:
+          prod:
+            hostname: 10.0.0.1
+            user: ubuntu
+        default_host: prod
+    """).strip())
+    root = load_config(str(cfg))
+    # Default 100 MB
+    assert root.hosts["prod"].transfer_size_cap == 100 * 1024 * 1024
+
+
+def test_load_config_with_custom_transfer_size_cap(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(textwrap.dedent("""
+        hosts:
+          big:
+            hostname: 10.0.0.2
+            user: alice
+            transfer_size_cap: 524288000   # 500 MB
+    """).strip())
+    root = load_config(str(cfg))
+    assert root.hosts["big"].transfer_size_cap == 524288000

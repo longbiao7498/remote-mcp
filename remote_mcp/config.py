@@ -25,6 +25,7 @@ class HostConfig:
     glob_output_limit: int = 1000
     read_size_cap: int = 256 * 1024
     bash_output_cap: int = 100 * 1024
+    transfer_size_cap: int = 100 * 1024 * 1024   # 100 MB cap for Upload/Download
 
 
 @dataclass
