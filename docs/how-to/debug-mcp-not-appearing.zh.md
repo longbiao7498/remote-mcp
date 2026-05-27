@@ -25,6 +25,15 @@
    claude mcp add --global remote-prod -- python -m remote_mcp --host prod
    ```
 
+   **如果条目在，但看到的工具名跟预期不同**（比如 `mcp__pixie-dust__Read` 而不是 `mcp__remote-prod__Read`），说明 **MCP 服务器标签**（`claude mcp add` 的第一个参数）跟你以为的不一样。这个标签——和 `--host` 参数是两回事——决定了工具命名空间。重命名的话先删再加：
+
+   ```bash
+   claude mcp remove pixie-dust    # 用 `claude mcp list` 看到的那个奇怪名字
+   claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+   ```
+
+   两个名字的完整辨析见 [配置多台远程主机 → 第 2 步](./configure-multi-host.zh.md#步骤)。
+
 2. **验证服务器进程能正常启动**
 
    工具列表只有在 MCP 服务器进程正常启动后才会填充。手动运行：

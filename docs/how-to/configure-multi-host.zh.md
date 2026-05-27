@@ -46,7 +46,20 @@
    claude mcp add --global remote-staging -- python -m remote_mcp --host staging
    ```
 
-   前缀（`remote-prod`、`remote-gpu` 等）决定了 Claude Code 暴露的工具命名空间。
+   **每行有两个你自己选的 token，外加一堆固定 CLI 语法。** 分开看：
+
+   ```
+   claude mcp add --global  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
+   └── 固定 Claude Code ──┘└── 你选 ──┘   ↑   └── 固定 remote-mcp ──────┘└── 你选 ──┘
+                                        分隔符
+   ```
+
+   - **`<NAMESPACE>`** —— Claude Code 给这个 MCP 服务器起的标签。它会成为 agent 看到的**工具前缀**：`mcp__<NAMESPACE>__Read` 等。后续 `claude mcp remove <NAMESPACE>`、`claude mcp list` 也用它。
+   - **`<HOST-KEY>`** —— 第 1 步 `config.yaml` 里 `hosts:` 块下的 key。决定 SSH 到哪台远程。
+
+   其余部分（`claude mcp add`、`--global`、`--`、`python -m remote_mcp`、`--host`）都是**固定 CLI 语法**——照抄。
+
+   两个**你选**的 token 互相独立。你*可以*写成 `claude mcp add --global pixie-dust -- python -m remote_mcp --host prod`，agent 看到的就是 `mcp__pixie-dust__Read` 操作 `prod` 主机。**推荐用上面的 `remote-<HOST-KEY>` 同名约定**——看到 `mcp__remote-prod__Bash` 就一眼能看出操作哪台。除非有特别理由，否则保持这个习惯。
 
 3. **重启 Claude Code**
 

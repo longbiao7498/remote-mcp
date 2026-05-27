@@ -135,6 +135,19 @@ MCP server "remote-myserver" added to global config.
 
 只需这一条命令。Claude Code 会保存服务器条目，并在你下次打开 Claude Code 时自动启动 remote-mcp 进程。
 
+**注意——这条命令里有两个你自己选的 token，本教程里恰好长得一样。** 把"你选的"和"固定 CLI 语法"分开看：
+
+```
+claude mcp add --global  remote-myserver  --  python -m remote_mcp --host  myserver
+└── 固定 Claude Code ──┘└── 你选 ────┘   ↑   └── 固定 remote-mcp ──────┘└ 你选 ┘
+                                       分隔符
+```
+
+- 第一个 **`remote-myserver`** 是 **Claude Code 给这个 MCP 服务器起的标签**——任你取。它会成为下一步 agent 看到的工具命名空间（`mcp__remote-myserver__Read` 等），也是后续 `claude mcp remove` 用的名字。
+- 第二个 **`myserver`** 是你在第二步写到 `config.yaml` 里 **`hosts:` 下的 key**。它告诉 `remote-mcp` 实际要 SSH 到**哪台**远程主机。
+
+本教程让两个名字一样是有意的——刚入门时这样最不容易混淆。你也可以写成 `claude mcp add --global prod-box -- python -m remote_mcp --host myserver`，agent 就会看到 `mcp__prod-box__Read` 操作同一台主机。
+
 ---
 
 ## 第五步 — 重启 Claude Code

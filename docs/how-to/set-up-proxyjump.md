@@ -53,6 +53,8 @@ The target host is not directly reachable from your machine — you must tunnel 
    claude mcp add --global remote-prod -- python -m remote_mcp --host prod
    ```
 
+   > The first `remote-prod` is the **MCP server label** Claude Code uses for namespacing tools (you choose it). The `--host prod` token is the **`hosts:` key** in your `config.yaml` (must match). Everything else is fixed CLI syntax — see [Configure multiple remote hosts → step 2](./configure-multi-host.md#steps) for the full disambiguation.
+
 4. **Restart Claude Code**
 
 ## Verification
