@@ -38,13 +38,26 @@ def write(conn: SSHConnection, file_path: str, content: str) -> str:
 
     Returns:
         `"Successfully wrote <N> characters to <file_path>"` on success.
-        `"Error: <stderr>"` on write failures (e.g. permission denied).
+        `"Error: Permission denied: <file_path>"` if the user can't write.
+        `"Error: <message>"` for other SFTP failures (e.g. target is a
+        directory, disk full, invalid path).
     """
     sftp = conn.get_sftp()
     parent = posixpath.dirname(file_path)
-    if parent:
-        _sftp_mkdirs(sftp, parent)
     encoded = content.encode("utf-8")
-    with sftp.file(file_path, "w") as f:
-        f.write(encoded)
+    try:
+        if parent:
+            _sftp_mkdirs(sftp, parent)
+        with sftp.file(file_path, "w") as f:
+            f.write(encoded)
+    except PermissionError:
+        return f"Error: Permission denied: {file_path}"
+    except (IOError, OSError) as e:
+        # paramiko maps SFTP errors to IOError/OSError. EACCES is wrapped as
+        # IOError(errno=13) on some SFTP servers, so check that too.
+        import errno as _errno
+        if getattr(e, "errno", None) == _errno.EACCES:
+            return f"Error: Permission denied: {file_path}"
+        msg = str(e) or type(e).__name__
+        return f"Error: {msg}"
     return f"Successfully wrote {len(content)} characters to {file_path}"

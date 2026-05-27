@@ -36,7 +36,8 @@
 
 | 触发条件 | 返回字符串 |
 |---------|-----------|
-| 权限拒绝或其他 SFTP 写入失败 | `Error: <exception message from paramiko>` |
+| 用户对 `<file_path>` 或其父目录无写权限（SFTP `PermissionError`，或 `errno=EACCES` 的 `IOError`） | `Error: Permission denied: <file_path>` |
+| 其他 SFTP 写入失败（目标是目录、磁盘满、路径无效等） | `Error: <message>` —— 底层异常的 `str()`；若异常消息为空则回退为异常类名 |
 
 ## 行为说明
 

@@ -28,7 +28,8 @@ def edit(conn: SSHConnection, file_path: str,
         `"Error: File not found: <file_path>"` if the file doesn't exist.
         `"Error: old_string not found in <file_path>"` if no match.
         `"Error: old_string found N times in <file_path>. Provide more
-        context to match uniquely."` if N>1 and replace_all is False.
+        context to match uniquely, or set replace_all=true to replace all."`
+        if N>1 and replace_all is False.
         Errors leave the file unchanged.
     """
     sftp = conn.get_sftp()
@@ -49,7 +50,8 @@ def edit(conn: SSHConnection, file_path: str,
         if count > 1:
             return (
                 f"Error: old_string found {count} times in {file_path}. "
-                f"Provide more context to match uniquely."
+                f"Provide more context to match uniquely, "
+                f"or set replace_all=true to replace all."
             )
         new_content = content.replace(old_string, new_string, 1)
 

@@ -42,7 +42,7 @@
 |---------|-----------|
 | 文件不存在 | `Error: File not found: <file_path>` |
 | 文件中未找到 `old_string` | `Error: old_string not found in <file_path>` |
-| `old_string` 出现多次且 `replace_all` 为 `false` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely.` |
+| `old_string` 出现多次且 `replace_all` 为 `false` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely, or set replace_all=true to replace all.` |
 
 ## 行为说明
 

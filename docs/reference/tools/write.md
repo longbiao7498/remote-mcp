@@ -36,7 +36,8 @@ A string. The format depends on outcome:
 
 | Trigger | Returned string |
 |---------|-----------------|
-| Permission denied or other SFTP write failure | `Error: <exception message from paramiko>` |
+| User lacks write permission on `<file_path>` or its parent directory (SFTP `PermissionError`, or `IOError` with `errno=EACCES`) | `Error: Permission denied: <file_path>` |
+| Other SFTP write failure (target is a directory, disk full, invalid path, etc.) | `Error: <message>` — the underlying exception's `str()`, or the exception class name if the message is empty |
 
 ## Behavior notes
 

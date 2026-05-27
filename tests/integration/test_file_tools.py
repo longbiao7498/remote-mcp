@@ -92,6 +92,21 @@ def test_write_creates_parent_dirs(conn):
         assert f.read().decode() == "deep\n"
 
 
+def test_write_permission_denied_returns_error(conn):
+    """Write to a path the test user can't write to → returns Error string, doesn't raise."""
+    # /etc is root-only on the test host
+    out = write_tool.write(conn, "/etc/rmcp-cannot-write.txt", "x")
+    assert out.startswith("Error:")
+    assert "/etc/rmcp-cannot-write.txt" in out
+
+
+def test_write_invalid_path_returns_error(conn):
+    """Writing to an obviously invalid path → returns Error, doesn't raise."""
+    # / is a directory, not a writable file
+    out = write_tool.write(conn, "/", "x")
+    assert out.startswith("Error:")
+
+
 def test_write_special_chars(conn):
     raw = "it's a $VAR with \"quotes\" and \\backslash\nplus newline"
     write_tool.write(conn, "/tmp/rmcp-w-special.txt", raw)

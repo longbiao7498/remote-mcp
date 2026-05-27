@@ -262,21 +262,28 @@ def _sftp_mkdirs(sftp, path):
 ```python
 # Fragment
 def edit(sftp: paramiko.SFTPClient, file_path: str,
-         old_string: str, new_string: str) -> str:
+         old_string: str, new_string: str,
+         replace_all: bool = False) -> str:
     try:
         with sftp.file(file_path, 'r') as f:
             content = f.read().decode('utf-8')
-    except FileNotFoundError:
+    except IOError:   # paramiko raises IOError (not FileNotFoundError) on SFTP ENOENT
         return f"Error: File not found: {file_path}"
 
-    count = content.count(old_string)
-    if count == 0:
-        return f"Error: old_string not found in {file_path}"
-    if count > 1:
-        return (f"Error: old_string found {count} times in {file_path}. "
-                f"Provide more context to match uniquely.")
+    if replace_all:
+        if old_string not in content:
+            return f"Error: old_string not found in {file_path}"
+        new_content = content.replace(old_string, new_string)
+    else:
+        count = content.count(old_string)
+        if count == 0:
+            return f"Error: old_string not found in {file_path}"
+        if count > 1:
+            return (f"Error: old_string found {count} times in {file_path}. "
+                    f"Provide more context to match uniquely, "
+                    f"or set replace_all=true to replace all.")
+        new_content = content.replace(old_string, new_string, 1)
 
-    new_content = content.replace(old_string, new_string, 1)
     with sftp.file(file_path, 'w') as f:
         f.write(new_content.encode('utf-8'))
     return f"Successfully edited {file_path}"
@@ -297,7 +304,7 @@ def multi_edit(sftp: paramiko.SFTPClient, file_path: str,
     try:
         with sftp.file(file_path, 'r') as f:
             content = f.read().decode('utf-8')
-    except FileNotFoundError:
+    except IOError:   # paramiko raises IOError on SFTP ENOENT
         return f"Error: File not found: {file_path}"
 
     current = content
@@ -371,7 +378,8 @@ def multi_read(conn: SSHConnection,
      2	import sys
      ...
 
-===FILE: /path/to/file2.py (NOT FOUND)===
+===FILE: /path/to/file2.py===
+NOT_FOUND
 
 ===FILE: /path/to/file3.py===
     10	def foo():
@@ -412,7 +420,7 @@ def file_stat(sftp: paramiko.SFTPClient,
                 f"{fp}: exists=true type={kind} size={st.st_size} "
                 f"mode={oct(st.st_mode)[-4:]} mtime={mtime_iso}"
             )
-        except FileNotFoundError:
+        except IOError:   # paramiko's SFTP raises IOError on ENOENT (not FileNotFoundError)
             lines.append(f"{fp}: exists=false")
         except PermissionError:
             lines.append(f"{fp}: error=permission_denied")
@@ -517,8 +525,10 @@ def _bash_background(session, conn_name, command):
 def glob_tool(conn: SSHConnection, pattern: str, path: str = ".") -> str:
     find_expr = _glob_to_find(pattern)     # "**/*.py" → "-path '*.py'"
                                             # "src/**/*.py" → "-path 'src/*/*.py'" or "-wholename"
+    limit = conn.config.glob_output_limit
+    # Fetch limit+1 so we can detect overflow precisely; trim to `limit` if so.
     cmd = (f"find {shlex.quote(path)} "
-           f"\\( {find_expr} \\) -type f | sort | head -{conn.config.glob_output_limit}")
+           f"\\( {find_expr} \\) -type f | sort | head -{limit + 1}")
     result = conn.exec(cmd)
     if result.exit_code not in (0, 1):
         return f"Error: {result.stderr.strip()}"
@@ -526,8 +536,8 @@ def glob_tool(conn: SSHConnection, pattern: str, path: str = ".") -> str:
         return "No files found matching pattern"
 
     lines = result.stdout.splitlines()
-    if len(lines) >= conn.config.glob_output_limit:
-        return result.stdout + f"\n... [truncated to {conn.config.glob_output_limit} entries]"
+    if len(lines) > limit:
+        return "\n".join(lines[:limit]) + f"\n... [truncated to {limit} entries]"
     return result.stdout
 
 def _glob_to_find(pattern: str) -> str:

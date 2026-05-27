@@ -19,7 +19,10 @@ This wording is API-stable — consumers (especially Claude Code's error-recover
 
 ### Write
 
-Write does not produce `"Error: ..."` strings in normal operation — SFTP failures (e.g., permission denied) propagate as uncaught `IOError` exceptions, which are caught by the server-level retry path and returned as `Error: <exception message>`.
+| Trigger | Returned string |
+|---------|-----------------|
+| User lacks write permission on `<file_path>` or its parent (SFTP `PermissionError`, or `IOError` with `errno=EACCES`) | `Error: Permission denied: <file_path>` |
+| Other SFTP write failure (target is a directory, disk full, invalid path) | `Error: <message>` — the underlying exception's `str()`, or the exception class name if `str()` is empty |
 
 ### Edit
 
@@ -28,7 +31,7 @@ Write does not produce `"Error: ..."` strings in normal operation — SFTP failu
 | File does not exist (SFTP `IOError` on open) | `Error: File not found: <file_path>` |
 | `old_string` not found in file (zero occurrences, `replace_all=False`) | `Error: old_string not found in <file_path>` |
 | `old_string` not found in file (zero occurrences, `replace_all=True`) | `Error: old_string not found in <file_path>` |
-| `old_string` found more than once and `replace_all=False` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely.` |
+| `old_string` found more than once and `replace_all=False` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely, or set replace_all=true to replace all.` |
 
 ### MultiEdit
 
