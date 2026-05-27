@@ -46,8 +46,8 @@ remote-mcp 的存在是为了解决一个看似简单、却有着出乎意料丰
 注册命令如下：
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
-claude mcp add --global remote-gpu  -- python -m remote_mcp --host gpu
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-gpu  -- python -m remote_mcp --host gpu
 ```
 
 两台主机，两个进程，两条 SSH 连接。它们在运行时不共享任何东西。Claude Code 看到的工具名称是 `mcp__remote-prod__Read`、`mcp__remote-gpu__Bash` 等等——MCP 命名空间前缀让每一次工具调用都清楚地携带了主机标识。

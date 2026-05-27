@@ -90,7 +90,7 @@ Strict bottom-up; per-stage acceptance criteria in spec §13. Don't skip ahead.
 ```bash
 pip install -e .
 python -m remote_mcp --host <name> [--config <path>] [--test]
-claude mcp add --global remote-<name> -- python -m remote_mcp --host <name>
+claude mcp add --scope user remote-<name> -- python -m remote_mcp --host <name>
 ```
 
 There is no test runner, lint config, or CI yet — add these as part of stage 6 if needed.

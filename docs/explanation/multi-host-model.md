@@ -9,8 +9,8 @@ Remote-mcp is designed to support a common but non-trivial workflow: a single Cl
 Each remote host is represented by a separate remote-mcp OS process. You register hosts independently:
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
-claude mcp add --global remote-gpu  -- python -m remote_mcp --host gpu
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-gpu  -- python -m remote_mcp --host gpu
 ```
 
 Claude Code sees ten tools per host, namespaced by the registration name:

@@ -9,8 +9,8 @@ remote-mcp 的设计支持一种常见但并不简单的工作流：单个 Claud
 每台远程主机由一个独立的 remote-mcp 操作系统进程代表。你需要独立注册各台主机：
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
-claude mcp add --global remote-gpu  -- python -m remote_mcp --host gpu
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-gpu  -- python -m remote_mcp --host gpu
 ```
 
 Claude Code 每台主机看到十个工具，以注册名称为命名空间：

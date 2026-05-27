@@ -4000,7 +4000,7 @@ See the design spec for the full schema (`docs/superpowers/specs/2026-05-26-remo
 ## Register with Claude Code
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
 ```
 
 Restart Claude Code. The 10 tools appear as `mcp__remote-prod__Read`, etc.

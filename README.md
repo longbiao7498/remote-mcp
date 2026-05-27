@@ -57,7 +57,7 @@ If you see this, the SSH connection works and `remote-mcp` is healthy. If you ge
 One `claude mcp add` per host:
 
 ```bash
-claude mcp add --global remote-myserver -- python -m remote_mcp --host myserver
+claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
 ```
 
 Restart Claude Code. Ten new tools will appear in the tool list, namespaced as `mcp__remote-myserver__Read`, `mcp__remote-myserver__Bash`, and so on. Ask the agent something like *"use the remote tools to show me /etc/hostname"* and you'll see them in action.
@@ -67,7 +67,7 @@ Restart Claude Code. Ten new tools will appear in the tool list, namespaced as `
 > Schema:
 >
 > ```
-> claude mcp add --global  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
+> claude mcp add --scope user  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
 > └─── fixed Claude Code CLI ──┘└─you─┘  ↑   └─── fixed remote-mcp CLI ──┘└─you─┘
 >                              choose   │                                 choose
 >                                       └ separator: "everything after this is the command to run"
@@ -78,17 +78,17 @@ Restart Claude Code. Ten new tools will appear in the tool list, namespaced as `
 > - **`<NAMESPACE>`** — the label Claude Code uses to identify this MCP server. It becomes the **tool prefix** the agent sees: `mcp__<NAMESPACE>__Read`, `mcp__<NAMESPACE>__Bash`, etc. Also the name you use later with `claude mcp remove <NAMESPACE>` and `claude mcp list`. Anything alphanumeric + dashes works.
 > - **`<HOST-KEY>`** — the key under `hosts:` in your `~/.config/remote-mcp/config.yaml`. Tells `remote-mcp` *which* remote to SSH into. Must match exactly.
 >
-> Everything else in the command (`claude mcp add`, `--global`, `--`, `python -m remote_mcp`, `--host`) is **fixed CLI syntax** — type it verbatim.
+> Everything else in the command (`claude mcp add`, `--scope user`, `--`, `python -m remote_mcp`, `--host`) is **fixed CLI syntax** — type it verbatim.
 >
 > **Two concrete examples:**
 >
 > ```bash
 > # Recommended (matching names — least confusing):
-> claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+> claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
 > # Agent sees: mcp__remote-prod__Read, ..., all operating on the 'prod' host
 >
 > # Also valid (mismatched — unusual but works):
-> claude mcp add --global box42 -- python -m remote_mcp --host gpu-server-01
+> claude mcp add --scope user box42 -- python -m remote_mcp --host gpu-server-01
 > # Agent sees: mcp__box42__Read, ..., all operating on the 'gpu-server-01' host
 > ```
 >

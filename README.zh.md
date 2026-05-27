@@ -57,7 +57,7 @@ Connected to myserver (alice@192.168.1.100). All tools: OK
 每个主机一次 `claude mcp add`：
 
 ```bash
-claude mcp add --global remote-myserver -- python -m remote_mcp --host myserver
+claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
 ```
 
 重启 Claude Code。工具列表里会出现 10 个新工具，命名形如 `mcp__remote-myserver__Read`、`mcp__remote-myserver__Bash` 等。试着对 agent 说：*"用远程工具看看 /etc/hostname"*，就能看到它们工作。
@@ -67,7 +67,7 @@ claude mcp add --global remote-myserver -- python -m remote_mcp --host myserver
 > 命令结构：
 >
 > ```
-> claude mcp add --global  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
+> claude mcp add --scope user  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
 > └── 固定 Claude Code CLI ──┘└你选┘    ↑   └── 固定 remote-mcp CLI ──┘└你选┘
 >                                      │
 >                                      └ 分隔符: "后面这串是要执行的命令"
@@ -78,17 +78,17 @@ claude mcp add --global remote-myserver -- python -m remote_mcp --host myserver
 > - **`<NAMESPACE>`** —— Claude Code 用来标识这个 MCP 服务器的标签。它会成为 agent 看到的**工具前缀**：`mcp__<NAMESPACE>__Read`、`mcp__<NAMESPACE>__Bash` 等。后续 `claude mcp remove <NAMESPACE>`、`claude mcp list` 都用它。字母数字加横线即可。
 > - **`<HOST-KEY>`** —— `~/.config/remote-mcp/config.yaml` 里 `hosts:` 块下的 key。告诉 `remote-mcp` 实际要 SSH 到**哪台**远程主机。必须精确匹配。
 >
-> 命令里其余部分（`claude mcp add`、`--global`、`--`、`python -m remote_mcp`、`--host`）都是**固定 CLI 语法**——照抄即可。
+> 命令里其余部分（`claude mcp add`、`--scope user`、`--`、`python -m remote_mcp`、`--host`）都是**固定 CLI 语法**——照抄即可。
 >
 > **两个具体例子：**
 >
 > ```bash
 > # 推荐写法（两个名字一致，最不混淆）：
-> claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+> claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
 > # agent 看到：mcp__remote-prod__Read, ...，实际操作 'prod' 主机
 >
 > # 也合法（名字不一致，少见但能用）：
-> claude mcp add --global box42 -- python -m remote_mcp --host gpu-server-01
+> claude mcp add --scope user box42 -- python -m remote_mcp --host gpu-server-01
 > # agent 看到：mcp__box42__Read, ...，实际操作 'gpu-server-01' 主机
 > ```
 >

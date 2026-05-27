@@ -121,10 +121,10 @@ If you see an error instead, stop here. Check that `ssh alice@your-host.example.
 
 ## Step 4 — Register with Claude Code
 
-Run `claude mcp add` to register this host as an MCP server. The `--global` flag makes it available in every Claude Code project.
+Run `claude mcp add` to register this host as an MCP server. The `--scope user` flag (vs the default `--scope local`) makes it available in every Claude Code project, not just the one you're currently in.
 
 ```bash
-claude mcp add --global remote-myserver -- python -m remote_mcp --host myserver
+claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
 ```
 
 You should see:
@@ -138,7 +138,7 @@ That is the only command needed. Claude Code stores the server entry; it will st
 **Heads-up — the command has two tokens you choose, and they happen to look the same in this tutorial.** Separating user-chosen tokens from fixed CLI syntax:
 
 ```
-claude mcp add --global  remote-myserver  --  python -m remote_mcp --host  myserver
+claude mcp add --scope user  remote-myserver  --  python -m remote_mcp --host  myserver
 └── fixed Claude Code ──┘└─ you chose ──┘  ↑  └── fixed remote-mcp ──────┘└ you chose ┘
                                           separator
 ```
@@ -146,7 +146,7 @@ claude mcp add --global  remote-myserver  --  python -m remote_mcp --host  myser
 - The first **`remote-myserver`** is **the label Claude Code uses for this MCP server** — anything you'd like. It becomes the tool namespace the agent sees in the next step (`mcp__remote-myserver__Read`, etc.) and is also the name you'd later pass to `claude mcp remove`.
 - The second **`myserver`** is the **`hosts:` key** you wrote in `config.yaml` in Step 2. It tells `remote-mcp` *which* remote to SSH into.
 
-We picked matching names on purpose for this tutorial — it's the least confusing default. You could equally have written `claude mcp add --global prod-box -- python -m remote_mcp --host myserver`; the agent would see `mcp__prod-box__Read` operating on the same host.
+We picked matching names on purpose for this tutorial — it's the least confusing default. You could equally have written `claude mcp add --scope user prod-box -- python -m remote_mcp --host myserver`; the agent would see `mcp__prod-box__Read` operating on the same host.
 
 ---
 

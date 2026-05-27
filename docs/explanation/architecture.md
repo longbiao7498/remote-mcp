@@ -46,8 +46,8 @@ Each remote host gets its own remote-mcp OS process. This is not a daemon that m
 The registration looks like this:
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
-claude mcp add --global remote-gpu  -- python -m remote_mcp --host gpu
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-gpu  -- python -m remote_mcp --host gpu
 ```
 
 Two hosts, two processes, two SSH connections. They share nothing at runtime. Claude Code sees tools named `mcp__remote-prod__Read`, `mcp__remote-gpu__Bash`, and so on — the MCP namespace prefix makes the host identity visible in every tool call.

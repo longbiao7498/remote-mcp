@@ -798,8 +798,8 @@ cap 触发时输出末尾追加截断说明（`... [truncated to N bytes]`），
 **模型**：一台远程主机一个 Python 进程。用户对每台分别 `claude mcp add`：
 
 ```bash
-claude mcp add --global remote-prod -- python -m remote_mcp --host prod
-claude mcp add --global remote-gpu  -- python -m remote_mcp --host gpu
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
+claude mcp add --scope user remote-gpu  -- python -m remote_mcp --host gpu
 ```
 
 Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`、...

@@ -50,7 +50,7 @@
    只注册目标主机——不注册堡垒机。堡垒机作为隧道透明使用。
 
    ```bash
-   claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+   claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
    ```
 
    > 第一个 `remote-prod` 是 Claude Code 用来给工具命名空间的 **MCP 服务器标签**（你自己选）。`--host prod` 中的 `prod` 是你 `config.yaml` 里 **`hosts:` 块下的 key**（必须匹配）。其余都是固定 CLI 语法——完整说明见 [配置多台远程主机 → 第 2 步](./configure-multi-host.zh.md#步骤)。

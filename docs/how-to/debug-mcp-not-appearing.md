@@ -22,14 +22,14 @@ You ran `claude mcp add` and restarted Claude Code, but none of the `mcp__remote
    Look for an entry like `remote-prod`. If it is missing, the `claude mcp add` command did not complete — re-run it:
 
    ```bash
-   claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+   claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
    ```
 
    **If the entry IS present but you see different tool names than you expected** (e.g., `mcp__pixie-dust__Read` instead of `mcp__remote-prod__Read`), the **MCP server label** (the first argument to `claude mcp add`) doesn't match what you assumed. That label — distinct from the `--host` argument — determines the tool namespace. To rename, remove and re-add:
 
    ```bash
    claude mcp remove pixie-dust    # use the wrong-looking name from `claude mcp list`
-   claude mcp add --global remote-prod -- python -m remote_mcp --host prod
+   claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod
    ```
 
    For the full disambiguation of these two names, see [Configure multiple remote hosts → step 2](./configure-multi-host.md#steps).
@@ -78,7 +78,7 @@ You ran `claude mcp add` and restarted Claude Code, but none of the `mcp__remote
 
    ```bash
    claude mcp remove remote-prod
-   claude mcp add --global remote-prod -- /usr/bin/python3 -m remote_mcp --host prod
+   claude mcp add --scope user remote-prod -- /usr/bin/python3 -m remote_mcp --host prod
    ```
 
 5. **Restart Claude Code completely**

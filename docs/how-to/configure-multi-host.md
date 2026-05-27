@@ -41,15 +41,15 @@ You need Claude Code to operate on two or three different servers in the same se
 2. **Register each host as a separate MCP server**
 
    ```bash
-   claude mcp add --global remote-prod    -- python -m remote_mcp --host prod
-   claude mcp add --global remote-gpu     -- python -m remote_mcp --host gpu
-   claude mcp add --global remote-staging -- python -m remote_mcp --host staging
+   claude mcp add --scope user remote-prod    -- python -m remote_mcp --host prod
+   claude mcp add --scope user remote-gpu     -- python -m remote_mcp --host gpu
+   claude mcp add --scope user remote-staging -- python -m remote_mcp --host staging
    ```
 
    **Each line has two tokens you choose and a lot of fixed CLI syntax.** Separating them:
 
    ```
-   claude mcp add --global  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
+   claude mcp add --scope user  <NAMESPACE>  --  python -m remote_mcp --host  <HOST-KEY>
    └── fixed Claude Code ──┘└─ you ──┘   ↑   └── fixed remote-mcp ──────┘└─ you ──┘
                             choose      separator                         choose
    ```
@@ -57,9 +57,9 @@ You need Claude Code to operate on two or three different servers in the same se
    - **`<NAMESPACE>`** — Claude Code's label for this MCP server. It becomes the **tool prefix** the agent sees: `mcp__<NAMESPACE>__Read`, etc. Also the name you'd use with `claude mcp remove <NAMESPACE>` or `claude mcp list`.
    - **`<HOST-KEY>`** — the key under `hosts:` in `config.yaml` from step 1. Picks which remote to SSH into.
 
-   Everything else (`claude mcp add`, `--global`, `--`, `python -m remote_mcp`, `--host`) is **fixed CLI syntax** — type it verbatim.
+   Everything else (`claude mcp add`, `--scope user`, `--`, `python -m remote_mcp`, `--host`) is **fixed CLI syntax** — type it verbatim.
 
-   The two tokens you choose are independent. You *could* write `claude mcp add --global pixie-dust -- python -m remote_mcp --host prod` and the agent would see `mcp__pixie-dust__Read` operating on the `prod` host. **The matching `remote-<HOST-KEY>` convention above is the recommended default** — when you see `mcp__remote-prod__Bash` in a tool call, it's obvious which remote it operates on. Stick to it unless you have a reason not to.
+   The two tokens you choose are independent. You *could* write `claude mcp add --scope user pixie-dust -- python -m remote_mcp --host prod` and the agent would see `mcp__pixie-dust__Read` operating on the `prod` host. **The matching `remote-<HOST-KEY>` convention above is the recommended default** — when you see `mcp__remote-prod__Bash` in a tool call, it's obvious which remote it operates on. Stick to it unless you have a reason not to.
 
 3. **Restart Claude Code**
 
