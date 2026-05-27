@@ -9,7 +9,7 @@ description = "Local MCP server proxying file/shell tools to a remote Linux host
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "longbiao", email = "longbiao7498@qq.com"},
+    {name = "longbiao7498", email = "longbiao7498@qq.com"},
 ]
 keywords = ["mcp", "ssh", "claude-code", "remote", "paramiko"]
 classifiers = [
@@ -30,10 +30,10 @@ dependencies = [
 ]
 
 [project.urls]
-"Source" = "https://github.com/longbiao/remote-mcp"
-"Issues" = "https://github.com/longbiao/remote-mcp/issues"
-"Design Spec" = "https://github.com/longbiao/remote-mcp/blob/master/docs/superpowers/specs/2026-05-26-remote-mcp-design.md"
-"Changelog" = "https://github.com/longbiao/remote-mcp/blob/master/CHANGELOG.md"
+"Source" = "https://github.com/longbiao7498/remote-mcp"
+"Issues" = "https://github.com/longbiao7498/remote-mcp/issues"
+"Design Spec" = "https://github.com/longbiao7498/remote-mcp/blob/master/docs/superpowers/specs/2026-05-26-remote-mcp-design.md"
+"Changelog" = "https://github.com/longbiao7498/remote-mcp/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

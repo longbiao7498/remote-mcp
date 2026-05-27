@@ -67,4 +67,4 @@ See spec §15 for future work — primarily:
 - Read streaming for files > 100 MB
 - Background Bash log auto-rotation
 
-[0.1.0]: https://github.com/longbiao/remote-mcp/releases/tag/v0.1.0
+[0.1.0]: https://github.com/longbiao7498/remote-mcp/releases/tag/v0.1.0
