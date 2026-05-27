@@ -1,1 +1,16 @@
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+*.egg
+
+# Editor swap files / OS junk
+*.swp
+*.swo
+.DS_Store
