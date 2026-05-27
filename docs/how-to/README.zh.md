@@ -17,6 +17,7 @@
 | [连接断开后恢复](./recover-from-disconnect.md) | 看到 `[WARNING] SSH connection to <host> was lost` 消息时 |
 | [调试：MCP 工具未出现在 Claude Code 中](./debug-mcp-not-appearing.md) | 执行 `claude mcp add` 并重启后，工具没有显示 |
 | [查看反馈日志](./inspect-feedback-log.md) | 读取 agent 记录的 remote-mcp 相关反馈 |
+| [使用 CLAUDE.md 工作流片段](./use-the-workflow-fragment.zh.md) | 把工作流规则复制到你**本地**的 CLAUDE.md，让 agent 自动使用带宽感知模式 |
 
 ## 扩展 remote-mcp
 

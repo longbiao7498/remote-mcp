@@ -17,6 +17,7 @@ A how-to is *not* a tutorial (no teaching, no journey) and not reference (no exh
 | [Recover after a connection drop](./recover-from-disconnect.md) | You see a `[WARNING] SSH connection to <host> was lost` message |
 | [Debug: MCP tools not appearing in Claude Code](./debug-mcp-not-appearing.md) | After `claude mcp add` + restart, the tools don't show up |
 | [Inspect the feedback log](./inspect-feedback-log.md) | Read what the agent has filed about remote-mcp itself |
+| [Use the CLAUDE.md workflow fragment](./use-the-workflow-fragment.md) | Get the agent to use bandwidth-aware patterns automatically by copying the workflow rules into your local CLAUDE.md |
 
 ## Extending remote-mcp
 

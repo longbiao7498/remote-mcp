@@ -124,7 +124,7 @@ claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myser
 
 ## 推荐：加上工作流引导文档
 
-agent 知道带宽感知的工作模式后会用得更高效（用 Grep 的 context 行替代 grep 后再 Read、用 MultiRead 替代连续 Read、用后台 Bash 替代长任务阻塞等）。把 [`CLAUDE.md.fragment.zh.md`](./CLAUDE.md.fragment.zh.md) 的内容复制到你远程项目的 `CLAUDE.md` 里，agent 会自动遵守这些规则。
+agent 知道带宽感知的工作模式后会用得更高效（用 Grep 的 context 行替代 grep 后再 Read、用 MultiRead 替代连续 Read、用后台 Bash 替代长任务阻塞等）。把 [`CLAUDE.md.fragment.zh.md`](./CLAUDE.md.fragment.zh.md) 的内容复制到你**本地**项目的 `CLAUDE.md` 里（Claude Code 会话启动时读的那个文件——**不是**远程主机上的文件）。三种用法（按项目、用户级、团队共享）参见 [使用 CLAUDE.md 工作流片段](./docs/how-to/use-the-workflow-fragment.zh.md)。
 
 ## 接下来读什么
 

@@ -69,7 +69,7 @@ remote_mcp/
 ├── bash_session.py    # BashSession + sentinel 协议（捕获 exit_code 和 cwd）+ 读取线程
 └── tools/
     ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py feedback.py
-CLAUDE.md.fragment.md  # 在仓库根目录发货；用户复制到其远程项目的 CLAUDE.md
+CLAUDE.md.fragment.md  # 在仓库根目录发货；用户复制到**本地**项目的 CLAUDE.md（Claude Code 启动时读的那个文件——**不是**远程主机上的文件）
 ```
 
 配置位于 `~/.config/remote-mcp/config.yaml`（可用 `--config` 覆盖）。见规范 §11 了解 schema（hosts、key_path、jump_host、keepalive_interval、compression、bash_timeout_default、glob_output_limit、read_size_cap、bash_output_cap、default_host）。

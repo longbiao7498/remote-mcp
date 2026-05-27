@@ -69,7 +69,7 @@ remote_mcp/
 ├── bash_session.py    # BashSession + sentinel protocol (captures exit_code AND cwd) + reader thread
 └── tools/
     ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py feedback.py
-CLAUDE.md.fragment.md  # shipped at repo root; users copy to their remote project's CLAUDE.md
+CLAUDE.md.fragment.md  # shipped at repo root; users copy into the LOCAL project's CLAUDE.md (Claude Code reads it at startup — NOT a file on the remote host)
 ```
 
 Config lives in `~/.config/remote-mcp/config.yaml` (overridable with `--config`). See spec §11 for schema (hosts, key_path, jump_host, keepalive_interval, compression, bash_timeout_default, glob_output_limit, read_size_cap, bash_output_cap, default_host).

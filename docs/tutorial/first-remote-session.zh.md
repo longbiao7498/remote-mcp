@@ -206,7 +206,7 @@ remote-mcp 进程在本地运行，通过 stdio 与 Claude Code 通信（使用 
 
 ## 接下来做什么
 
-**充分利用这些工具。** 将本仓库根目录中的 `CLAUDE.md.fragment.md` 复制到你远程项目的 `CLAUDE.md` 中。它能教会代理带宽感知的使用模式——用 MultiRead 批量读取文件、用带上下文行的 Grep 替代"先 Grep 再 Read"、用 `run_in_background` 在后台运行长时间构建任务。没有它，代理也能正确使用工具，但不够高效。
+**充分利用这些工具。** 将本仓库根目录中的 `CLAUDE.md.fragment.md` 复制到你**本地**项目的 `CLAUDE.md` 中（Claude Code 启动时读的那个文件——**不是**远程主机上的文件）。它能教会代理带宽感知的使用模式——用 MultiRead 批量读取文件、用带上下文行的 Grep 替代"先 Grep 再 Read"、用 `run_in_background` 在后台运行长时间构建任务。没有它，代理也能正确使用工具，但不够高效。三种放置方式（按项目、用户级、团队 git 共享）参见 [使用 CLAUDE.md 工作流片段](../how-to/use-the-workflow-fragment.zh.md)。
 
 **理解系统原理。** 阅读[概念说明：架构概览](../explanation/architecture.md)，建立清晰的心智模型——了解哪些进程在运行、数据通过哪些协议传输，以及持久化 bash 会话存在的原因。
 

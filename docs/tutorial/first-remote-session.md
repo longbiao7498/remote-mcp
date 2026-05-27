@@ -206,7 +206,7 @@ The remote-mcp process runs locally, speaks MCP over stdio to Claude Code, and s
 
 ## Where to go next
 
-**Get more from the tools.** Copy `CLAUDE.md.fragment.md` from this repo's root into your remote project's `CLAUDE.md`. It teaches the agent bandwidth-aware patterns — batching reads with MultiRead, using Grep with context lines instead of Grep-then-Read, running long builds in the background with `run_in_background`. Without it, the agent uses the tools correctly but not efficiently.
+**Get more from the tools.** Copy `CLAUDE.md.fragment.md` from this repo's root into the `CLAUDE.md` of your **local** project (the one Claude Code reads at startup — *not* a file on the remote host). It teaches the agent bandwidth-aware patterns — batching reads with MultiRead, using Grep with context lines instead of Grep-then-Read, running long builds in the background with `run_in_background`. Without it, the agent uses the tools correctly but not efficiently. For the three placement options (per-project, user-level, team-shared via git), see [Use the CLAUDE.md workflow fragment](../how-to/use-the-workflow-fragment.md).
 
 **Understand the system.** Read the [Explanation: Architecture overview](../explanation/architecture.md) to get the mental model — what processes run, what protocols carry the data, and why the persistent bash session exists.
 

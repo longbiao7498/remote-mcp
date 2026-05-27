@@ -842,7 +842,7 @@ Claude Code 看到的工具：`mcp__remote-prod__Read`、`mcp__remote-gpu__Bash`
 
 ### 10.2 M2 — `CLAUDE.md.fragment.md`
 
-仓库内交付一份 markdown 文件，用户复制内容到自己远程项目的 CLAUDE.md（或追加）。结构：
+仓库内交付一份 markdown 文件，用户复制内容到**本地**项目的 CLAUDE.md（即 Claude Code 启动时读的那个本地文件，**不是**远程主机上的文件；或追加）。结构：
 
 ```markdown
 ## 在远程主机上工作（remote-mcp 工具使用指南）

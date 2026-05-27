@@ -124,7 +124,7 @@ Restart Claude Code. Ten new tools will appear in the tool list, namespaced as `
 
 ## Recommended: Add the workflow guide
 
-The agent uses remote tools more efficiently when it knows about the bandwidth-aware patterns (Grep with context lines instead of grep-then-read, MultiRead instead of consecutive Read, background Bash instead of blocking on long jobs). Copy [`CLAUDE.md.fragment.md`](./CLAUDE.md.fragment.md) into your remote project's `CLAUDE.md` so the agent picks up these rules automatically.
+The agent uses remote tools more efficiently when it knows about the bandwidth-aware patterns (Grep with context lines instead of grep-then-read, MultiRead instead of consecutive Read, background Bash instead of blocking on long jobs). Copy [`CLAUDE.md.fragment.md`](./CLAUDE.md.fragment.md) into the `CLAUDE.md` of your **local** project (the one Claude Code reads at session startup — *not* a file on the remote host). See [Use the CLAUDE.md workflow fragment](./docs/how-to/use-the-workflow-fragment.md) for the three usage patterns (per-project, user-level, team-shared).
 
 ## Where to go next
 
