@@ -52,6 +52,7 @@ A string.
 - The local parent directory must exist; Download does NOT auto-create local directories (asymmetric with Upload, which auto-creates remote dirs).
 - Local file is written in binary mode.
 - Blocks until completion; no progress reporting.
+- **Partial files on mid-transfer failure**: if the network dies or the remote disconnects partway through a `get`, paramiko may leave a partial file at `local_path`. Download does NOT auto-delete it — unconditional deletion would destroy any pre-existing file the user had at that path. On an `Error:` return mid-transfer, treat the local target as potentially corrupt. For resumable transfers, use `Bash("rsync --partial --inplace ...", run_in_background=true)` instead.
 
 ## Bandwidth/latency profile
 

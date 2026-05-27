@@ -7,7 +7,6 @@ for Windows users without scp in PATH.
 import errno as _errno
 import os
 import posixpath
-import stat as _stat
 
 from ..connection import SSHConnection
 

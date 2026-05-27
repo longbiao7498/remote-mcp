@@ -33,6 +33,15 @@ def download(conn: SSHConnection, remote_path: str, local_path: str) -> str:
             doesn't exist.
         `"Error: Permission denied: <local_path>"` if local write is denied.
         `"Error: <message>"` for other SFTP errors.
+
+    Note on partial files:
+        If the transfer fails mid-stream (network drop, remote dies during
+        get), paramiko may leave a partial file at `local_path`. We do NOT
+        auto-delete it, because if `local_path` existed before the call we'd
+        be destroying the user's existing file on a transient failure. The
+        caller should check the returned status; on `Error:`, treat the local
+        target as potentially-corrupt and re-fetch (or use scp/rsync with
+        `--partial --inplace` for resumable transfers).
     """
     local = os.path.expanduser(local_path)
     local_parent = os.path.dirname(local) or "."
@@ -49,7 +58,11 @@ def download(conn: SSHConnection, remote_path: str, local_path: str) -> str:
     if _stat.S_ISDIR(st.st_mode or 0):
         return f"Error: Remote path is a directory, not a file: {remote_path}"
 
-    size = st.st_size
+    # st.st_size can be None for special files (pipes, sockets, /proc entries
+    # that pass the S_ISDIR check but aren't regular files). Treat None as 0 —
+    # the transfer is unlikely to be huge, and avoiding a TypeError keeps the
+    # tool's "never raises, always returns Error: ..." contract intact.
+    size = st.st_size or 0
     cap = conn.config.transfer_size_cap
     if size > cap:
         scp_template = (

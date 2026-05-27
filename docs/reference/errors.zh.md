@@ -136,4 +136,4 @@ RemoteInfo 不会失败——它返回内存中的配置。无错误字符串。
 - **Bash 输出截断不是错误。** 当输出超过 `bash_output_cap` 时，输出会在原地截断，并追加 `\n... [truncated to <N> bytes]`。这是成功返回值的一部分。
 - **Read 输出截断不是错误。** 当格式化后的输出超过 `read_size_cap` 时，追加 `\n... [truncated to <N> bytes]` 后缀。这是成功返回值的一部分。
 - **重连 WARNING 不是错误前缀。** 当 SSH 连接断开且自动重连成功时，工具结果以 `[WARNING] SSH connection to <host> was lost and has been re-established. ...` 为前缀——该前缀追加到工具返回值（成功或错误）之前，而不是替换它。
-- **Write 的 SFTP 异常不在工具层捕获。** `sftp.file()` 产生的权限拒绝等类似失败会传播到服务器重试路径，在那里以 `Error: <exception message>` 的形式呈现（包含原始 Python 异常文本）。
+- **三个写 SFTP 的工具（Write、Upload、Download）都在工具层捕获 SFTP 异常。** 权限错误（`PermissionError`，或 `errno=EACCES` 的 `IOError`）会变成 `Error: Permission denied: <path>`；其他 SFTP 失败变成 `Error: <message>`（来自底层异常的 `str()`）。正常情况下这些工具都不会让 Python 异常逃逸到服务器重试路径。
