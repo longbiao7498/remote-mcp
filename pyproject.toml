@@ -7,12 +7,33 @@ name = "remote-mcp"
 version = "0.1.0"
 description = "Local MCP server proxying file/shell tools to a remote Linux host over SSH"
 readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "longbiao", email = "longbiao7498@qq.com"},
+]
+keywords = ["mcp", "ssh", "claude-code", "remote", "paramiko"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Networking",
+]
 requires-python = ">=3.8"
 dependencies = [
     "paramiko>=3.0",
     "mcp>=0.9.0",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+"Source" = "https://github.com/longbiao/remote-mcp"
+"Issues" = "https://github.com/longbiao/remote-mcp/issues"
+"Design Spec" = "https://github.com/longbiao/remote-mcp/blob/master/docs/superpowers/specs/2026-05-26-remote-mcp-design.md"
+"Changelog" = "https://github.com/longbiao/remote-mcp/blob/master/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
