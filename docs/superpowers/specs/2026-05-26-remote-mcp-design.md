@@ -1116,6 +1116,13 @@ GitHub Actions，python 3.8 / 3.10 / 3.12 矩阵 + sshd container service。
 - **远程命令的进度反馈**：长操作（build/test）期间分批传输 stdout，而非等命令结束。需要修改 sentinel 协议或并行用第二个 channel 反向心跳。
 - **配置中支持密钥短语 / SSH agent**：当前 paramiko `connect()` 调用已能接受 `pkey` 或 `passphrase`，配置文件 schema 可扩展支持 `key_passphrase_env`。
 
+- **MCP 流式输出支持（streaming response）**：当前 MCP 协议是同步请求-响应——agent 调 Bash 等到完整结果才能处理。"流式"指 agent 在命令运行**期间**就能看到 stdout 一行行涌出，并据此实时反应（提前 kill、注入 stdin、根据中间日志决定下一步）。Claude Code 内置的 `Monitor` 工具是本地实现的类似思路，但 MCP spec 本身还没把这套协议化。
+  - **为什么记录**：v0.2.0 改成非持久 bash 后，我们的 Bash 工具底层用 `recv_ready` + `recv` 流式读 stdout 是自然实现，**一旦 MCP 协议层支持流式响应，几乎不需要重写**就能支持流式 Bash。持久模式因为 sentinel 协议本质上要等命令结束才能切分，反而难升级。这是非持久路线对未来的隐性收益。
+  - **触发条件**：MCP 规范官方 publish 流式响应协议，且 Claude Code 客户端实现。
+  - **可能形态**：`Bash(command="long_build", stream=true)` → 工具返回的 TextContent 分块到达；或新增 `BashStream` 工具与 foreground/background 并列。
+
+- **可选 `mode: persistent` 配置项**（v0.2.0 切非持久之后的反向出口）：如果有用户因为慢共享存储或高延迟链路对每次 channel-open + bash startup 的 ~300-500ms 开销不可接受，提供一个 opt-in 的持久模式配置（复用 v0.1.x 的 sentinel/PTY/setsid 那套代码作为可选模块）。**前提是真有人抱怨**——不提前实现。
+
 ---
 
 ## 附录：术语
