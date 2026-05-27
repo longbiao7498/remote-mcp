@@ -71,10 +71,17 @@ remote-mcp/
 ## Testing Strategy
 
 **Two test layers**:
-1. **Unit tests** (`tests/unit/`): pure-logic helpers — glob pattern conversion, sentinel line parsing, MultiEdit atomicity logic, feedback JSON shape, config YAML parsing. No SSH, no docker. Fast.
-2. **Integration tests** (`tests/integration/`): full end-to-end against a real sshd in a docker container. Slower but truthful — paramiko has too much state to mock usefully.
+1. **Unit tests** (`tests/unit/`): pure-logic helpers — glob pattern conversion, sentinel line parsing, MultiEdit atomicity logic, feedback JSON shape, config YAML parsing. No SSH. Fast.
+2. **Integration tests** (`tests/integration/`): end-to-end against a **real remote host**. Paramiko has too much state to mock usefully.
 
-The sshd container fixture (`tests/integration/conftest.py`, Stage 0) is the foundation. Start it once per test session; reuse across all integration tests.
+The real-host fixture (`tests/integration/conftest.py`, Stage 0) is the foundation. Connection params:
+- Host: `192.168.10.20`, user: `penglin_lb`, key: `~/.ssh/id_ed25519`
+- Passwordless already configured
+- Tests isolate side-effects by writing only into `/tmp/rmcp-test-<session_uuid>/` and cleaning up at session end
+
+**Reconnect simulation**: instead of restarting sshd (would affect other users of the host), we force-close the underlying TCP socket from the client side (`transport.sock.close()`). The next paramiko operation sees a dead socket and raises — triggering our reconnect path. Equivalent test signal, zero side effects on the host.
+
+**ProxyJump test**: uses the same host as both jump and target (self-jump). Tests the code path (open_channel direct-tcpip → connect through tunnel) without requiring a second host.
 
 ---
 
@@ -200,126 +207,123 @@ git commit -m "test: scaffold tests/ with unit and integration subdirs"
 
 ---
 
-### Task 0.4: Integration test fixture — sshd container
+### Task 0.4: Integration test fixture — real remote host
 
 **Files:**
 - Create: `tests/integration/conftest.py`
 
-This is the foundation for all integration tests. The fixture spawns a `linuxserver/openssh-server` container, sets up a key pair, and yields connection params.
+Provides connection params to a real remote host (passwordless SSH pre-configured), session-scoped working directory, and a `force_disconnect` helper for reconnect tests.
 
 - [ ] **Step 1: Write the fixture**
 
 `tests/integration/conftest.py`:
 ```python
-"""Integration test fixtures: real sshd container via docker."""
-import io
+"""Integration test fixtures: real remote host (no docker).
+
+The fixture targets a pre-configured host at 192.168.10.20 reachable
+passwordlessly from this dev machine. All filesystem side-effects go
+into /tmp/rmcp-test-<uuid>/ which is cleaned up at session end.
+"""
 import os
-import socket
 import subprocess
-import time
+import uuid
 from pathlib import Path
 
 import paramiko
 import pytest
 
 
-SSHD_IMAGE = "linuxserver/openssh-server:latest"
-
-
-def _free_port() -> int:
-    s = socket.socket()
-    s.bind(("", 0))
-    port = s.getsockname()[1]
-    s.close()
-    return port
+REMOTE_HOST = os.environ.get("RMCP_TEST_HOST", "192.168.10.20")
+REMOTE_USER = os.environ.get("RMCP_TEST_USER", "penglin_lb")
+REMOTE_PORT = int(os.environ.get("RMCP_TEST_PORT", "22"))
+REMOTE_KEY = os.environ.get(
+    "RMCP_TEST_KEY", os.path.expanduser("~/.ssh/id_ed25519")
+)
 
 
 @pytest.fixture(scope="session")
-def ssh_key(tmp_path_factory):
-    """Generate a fresh RSA key pair for the test session."""
-    key_dir = tmp_path_factory.mktemp("ssh_keys")
-    priv = key_dir / "id_rsa"
-    subprocess.run(
-        ["ssh-keygen", "-t", "rsa", "-b", "2048", "-N", "", "-f", str(priv), "-q"],
-        check=True,
-    )
-    pub = (key_dir / "id_rsa.pub").read_text().strip()
-    return {"private_path": str(priv), "public_key": pub}
+def ssh_key():
+    """Path to the SSH private key for the test host."""
+    if not Path(REMOTE_KEY).exists():
+        pytest.skip(f"SSH key not found at {REMOTE_KEY}")
+    return {"private_path": REMOTE_KEY}
 
 
 @pytest.fixture(scope="session")
 def sshd_container(ssh_key):
-    """Start an sshd container; yield {host, port, user, key_path}; tear down."""
-    port = _free_port()
-    name = f"remote-mcp-test-sshd-{port}"
-    user = "testuser"
+    """
+    Connection params to the real remote host (name kept for legacy plan
+    compatibility — it's NOT actually a container).
 
-    subprocess.run(
-        [
-            "docker", "run", "-d", "--rm",
-            "--name", name,
-            "-p", f"{port}:2222",
-            "-e", "PUID=1000", "-e", "PGID=1000",
-            "-e", f"USER_NAME={user}",
-            "-e", f"PUBLIC_KEY={ssh_key['public_key']}",
-            "-e", "SUDO_ACCESS=true",
-            "-e", "PASSWORD_ACCESS=false",
-            SSHD_IMAGE,
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
+    Session-scoped: one connection-test verifies reachability, then yields
+    params. The session-scoped working dir is created on the remote and
+    removed at teardown.
+    """
+    # Smoke-check reachability first
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            REMOTE_HOST, port=REMOTE_PORT, username=REMOTE_USER,
+            key_filename=ssh_key["private_path"], timeout=5,
+        )
+    except Exception as e:
+        pytest.skip(f"Remote host {REMOTE_HOST} unreachable: {e}")
 
-    # Wait for sshd to accept connections
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                # Probe with paramiko to confirm SSH handshake works
-                c = paramiko.SSHClient()
-                c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                c.connect(
-                    "127.0.0.1", port=port, username=user,
-                    key_filename=ssh_key["private_path"], timeout=2,
-                )
-                c.close()
-                break
-        except (OSError, paramiko.SSHException):
-            time.sleep(0.5)
-    else:
-        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL)
-        pytest.fail("sshd container did not become ready in 30s")
+    # Create a session-unique working dir on the remote
+    session_id = uuid.uuid4().hex[:12]
+    workdir = f"/tmp/rmcp-test-{session_id}"
+    stdin, stdout, _ = client.exec_command(f"mkdir -p {workdir}")
+    assert stdout.channel.recv_exit_status() == 0
+    client.close()
 
     yield {
-        "host": "127.0.0.1",
-        "port": port,
-        "user": user,
+        "host": REMOTE_HOST,
+        "port": REMOTE_PORT,
+        "user": REMOTE_USER,
         "key_path": ssh_key["private_path"],
-        "container": name,
+        "workdir": workdir,
     }
 
-    subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL)
+    # Teardown: remove session workdir
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            REMOTE_HOST, port=REMOTE_PORT, username=REMOTE_USER,
+            key_filename=ssh_key["private_path"], timeout=5,
+        )
+        client.exec_command(f"rm -rf {workdir}")
+        client.close()
+    except Exception:
+        pass  # Best-effort cleanup
 
 
 @pytest.fixture
 def sshd_kill_and_restart(sshd_container):
-    """Helper for reconnect tests: restart the container."""
-    def _action():
-        subprocess.run(
-            ["docker", "restart", sshd_container["container"]],
-            check=True, stdout=subprocess.DEVNULL,
-        )
-        # Re-wait for readiness
-        deadline = time.time() + 15
-        while time.time() < deadline:
+    """
+    Helper for reconnect tests.
+
+    Returns a callable that, when invoked with an SSHConnection-like object,
+    force-closes its underlying TCP socket. The next paramiko operation will
+    see the dead socket and raise — triggering the reconnect path.
+
+    Equivalent test signal to "the remote dropped the connection", with zero
+    side effects on the shared remote host.
+    """
+    def _action(conn=None):
+        # If passed a connection, force-close its underlying socket.
+        if conn is not None and getattr(conn, "_transport", None) is not None:
+            sock = conn._transport.sock
             try:
-                with socket.create_connection(
-                    (sshd_container["host"], sshd_container["port"]), timeout=1
-                ):
-                    return
-            except OSError:
-                time.sleep(0.3)
-        pytest.fail("sshd did not come back after restart")
+                sock.close()
+            except Exception:
+                pass
+            # Mark transport closed so paramiko treats it as broken
+            try:
+                conn._transport.close()
+            except Exception:
+                pass
     return _action
 ```
 
@@ -329,7 +333,7 @@ Create `tests/integration/test_smoke.py`:
 ```python
 import paramiko
 
-def test_can_connect_to_sshd(sshd_container, ssh_key):
+def test_can_connect_to_remote(sshd_container, ssh_key):
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(
@@ -341,21 +345,38 @@ def test_can_connect_to_sshd(sshd_container, ssh_key):
     stdin, stdout, stderr = client.exec_command("echo hello")
     assert stdout.read().decode().strip() == "hello"
     client.close()
+
+
+def test_workdir_created_on_remote(sshd_container, ssh_key):
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        sshd_container["host"],
+        port=sshd_container["port"],
+        username=sshd_container["user"],
+        key_filename=ssh_key["private_path"],
+    )
+    stdin, stdout, stderr = client.exec_command(f"test -d {sshd_container['workdir']} && echo ok")
+    assert stdout.read().decode().strip() == "ok"
+    client.close()
 ```
 
 - [ ] **Step 3: Run the smoke test**
 
 Run: `pytest tests/integration/test_smoke.py -v`
-Expected: PASS (takes ~10s on first run while pulling image).
+Expected: 2 tests PASS.
 
-If `docker` daemon not running or image not pullable, fix that before continuing — this fixture is foundational.
+If the remote host is unreachable, tests will skip — fix connectivity before proceeding (this fixture is foundational).
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add tests/integration/conftest.py tests/integration/test_smoke.py
-git commit -m "test: add sshd container fixture for integration tests"
+git commit -m "test: add real-host fixture for integration tests (no docker)"
 ```
+
+**Why the fixture is named `sshd_container` even though there's no container**:
+The plan was originally drafted for a docker fixture. Renaming the fixture would require touching every Stage 1-5 test. The name is now load-bearing for the plan's other tasks; treat it as "remote host params" regardless of the legacy name. (If you do rename, propagate the rename to every other reference in the plan.)
 
 ---
 
@@ -835,66 +856,32 @@ git commit -m "feat(connection): get_sftp() lazy + cached SFTPClient"
 **Files:**
 - Modify: `remote_mcp/connection.py`
 
-ProxyJump requires a second sshd container as jump. We add the jump variant of the fixture.
+Self-jump strategy: use the same remote host as both jump and target. The jump SSH session opens a `direct-tcpip` channel to the same host on port 22; we connect through that channel as the "target". This exercises the full ProxyJump code path (jump client, open_channel, sock= param) without requiring a second remote host.
 
-- [ ] **Step 1: Add jump-host fixture and test**
-
-Append to `tests/integration/conftest.py`:
-```python
-@pytest.fixture(scope="session")
-def sshd_jump_container(ssh_key):
-    """A second sshd container to act as a jump host."""
-    port = _free_port()
-    name = f"remote-mcp-test-jump-{port}"
-    user = "jumpuser"
-    subprocess.run(
-        [
-            "docker", "run", "-d", "--rm",
-            "--name", name,
-            "-p", f"{port}:2222",
-            "-e", "PUID=1000", "-e", "PGID=1000",
-            "-e", f"USER_NAME={user}",
-            "-e", f"PUBLIC_KEY={ssh_key['public_key']}",
-            "-e", "PASSWORD_ACCESS=false",
-            SSHD_IMAGE,
-        ],
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
-    # Wait for ready
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                break
-        except OSError:
-            time.sleep(0.5)
-    else:
-        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL)
-        pytest.fail("jump sshd container not ready")
-
-    yield {"host": "127.0.0.1", "port": port, "user": user,
-           "key_path": ssh_key["private_path"], "container": name}
-    subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL)
-```
+- [ ] **Step 1: Add the self-jump test**
 
 Append to `tests/integration/test_connection.py`:
 ```python
-def test_connect_via_jump_host(sshd_container, sshd_jump_container, ssh_key):
-    # Build configs: jump first, then target through jump
+def test_connect_via_jump_host(sshd_container, ssh_key):
+    """
+    Self-jump: target is the same host as jump. Tests the ProxyJump code path
+    (open_channel direct-tcpip + sock= kwarg).
+    """
     from remote_mcp.config import HostConfig
 
     jump_cfg = HostConfig(
         name="jump",
-        hostname=sshd_jump_container["host"],
-        port=sshd_jump_container["port"],
-        user=sshd_jump_container["user"],
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
         key_path=ssh_key["private_path"],
     )
     target_cfg = HostConfig(
         name="target",
-        hostname=sshd_container["host"],
-        port=sshd_container["port"],
+        # 'localhost' here means localhost from the jump host's perspective —
+        # since jump host == target host, this loops back to the same sshd.
+        hostname="127.0.0.1",
+        port=22,
         user=sshd_container["user"],
         key_path=ssh_key["private_path"],
         jump_host="jump",
@@ -909,6 +896,10 @@ def test_connect_via_jump_host(sshd_container, sshd_jump_container, ssh_key):
     finally:
         conn.close()
 ```
+
+**Why this works**: The jump establishes an SSH session to `sshd_container["host"]`. We then ask the jump's transport to `open_channel("direct-tcpip", ("127.0.0.1", 22), ...)` — which from the jump host's perspective opens a TCP connection to its own port 22. We hand that channel to a second SSHClient as `sock=`, completing the proxy chain. This exercises every line of the ProxyJump code without needing a second machine.
+
+**Precondition**: the test host must accept SSH connections from itself (i.e., `127.0.0.1` resolves, sshd listens on it, and the same key is authorized — all true for a normally-configured host).
 
 - [ ] **Step 2: Run, FAIL**
 
@@ -1003,7 +994,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add remote_mcp/connection.py tests/integration/conftest.py tests/integration/test_connection.py
+git add remote_mcp/connection.py tests/integration/test_connection.py
 git commit -m "feat(connection): ProxyJump via open_channel(direct-tcpip)"
 ```
 
@@ -1036,8 +1027,8 @@ def test_exec_with_retry_recovers_after_disconnect(host_config, sshd_kill_and_re
         assert conn.exec_with_retry("echo first").stdout.strip() == "first"
         assert conn.check_and_clear_reconnect_flag() is False
 
-        # Kill the container, then issue another exec
-        sshd_kill_and_restart()
+        # Force-close the underlying TCP socket; next op must trigger reconnect
+        sshd_kill_and_restart(conn)
         result = conn.exec_with_retry("echo second")
         assert result.stdout.strip() == "second"
 
@@ -1563,7 +1554,7 @@ def test_reconnect_invalidates_bash_session(host_config, sshd_kill_and_restart):
         s_pre = conn.get_bash_session()
         s_pre.execute("cd /tmp")
 
-        sshd_kill_and_restart()
+        sshd_kill_and_restart(conn)
 
         # exec_with_retry forces reconnect
         conn.exec_with_retry("echo touchstone")
@@ -3605,12 +3596,9 @@ def test_call_tool_reconnect_warning(runtime_config, sshd_kill_and_restart):
     try:
         # First call succeeds
         asyncio.run(srv.call_tool("Bash", {"command": "echo a"}))
-        # Kill sshd; next call triggers reconnect → WARNING
-        sshd_kill_and_restart()
-        # Use exec_with_retry-backed path; we call a tool that ultimately uses exec
-        # Trigger reconnect by manually flagging since persistent bash session needs to
-        # see the dead transport on its NEXT execute() call.
-        # Simplest: just call Glob which uses exec() and will fail+retry.
+        # Force-close the socket; next call triggers reconnect → WARNING
+        sshd_kill_and_restart(srv._conn)
+        # Call Glob (uses exec_with_retry via _with_retry wrapper)
         result = asyncio.run(srv.call_tool("Glob", {
             "pattern": "*", "path": "/tmp",
         }))
