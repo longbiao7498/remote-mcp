@@ -1,6 +1,10 @@
 # CLAUDE.md
 
+> 中文版本：[CLAUDE.zh.md](./CLAUDE.zh.md)
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+For user-facing documentation organized along the Diátaxis framework (tutorial / how-to / reference / explanation), see [`docs/`](./docs/). This file is specifically for Claude Code's perspective — it surfaces the load-bearing decisions and conventions that an agent modifying this codebase needs to know upfront.
 
 ## Repository status
 
@@ -45,7 +49,7 @@ On SSH drop, auto-reconnect once. The bash session is rebuilt **and shell state 
 - All tools return strings. **Failures return a string starting with `Error: ...`**, never raise. Claude Code adapts based on the error text.
 - For the 7 tools with native counterparts, names/parameters/output formats must match Claude Code built-ins exactly (e.g., Read returns `     <lineno>\t<content>` with 1-based line numbers). Error wording must be word-for-word — see spec §6.
 - Read does remote `sed -n` slicing, NOT SFTP-whole-file-then-slice. Only fall back to SFTP when no offset/limit and file size < 1 MB.
-- Write uses SFTP-native recursive mkdir, NOT `conn.exec("mkdir -p")`. Saves a channel round-trip.
+- Write uses SFTP-native recursive mkdir (see `_sftp_mkdirs` in `tools/write.py`), NOT `conn.exec("mkdir -p")`. Saves a channel round-trip.
 - Edit does read-modify-write through SFTP, requires `old_string` to appear exactly once, returns specific errors for 0 matches vs. >1 matches (with the count). For >1 edits on the same file, use MultiEdit.
 - MultiEdit is atomic across its edits list — if any edit fails (0 matches or >1 matches without `replace_all`), no write occurs.
 - MultiRead batches N file reads into one `conn.exec`; chunks separated by `===FILE: <path>===` markers.

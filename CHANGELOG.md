@@ -1,5 +1,7 @@
 # Changelog
 
+> 中文版本：[CHANGELOG.zh.md](./CHANGELOG.zh.md)
+
 All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
