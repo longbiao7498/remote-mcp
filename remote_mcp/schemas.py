@@ -1,4 +1,4 @@
-"""JSON schemas for all 10 tools. See spec §6."""
+"""JSON schemas for all 13 tools. See spec §6."""
 
 READ_SCHEMA = {
     "type": "object",
@@ -132,6 +132,30 @@ FEEDBACK_SCHEMA = {
     "required": ["category", "summary"],
 }
 
+UPLOAD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "local_path": {"type": "string", "description": "Absolute path on the LOCAL machine (where the MCP server runs). ~ is expanded."},
+        "remote_path": {"type": "string", "description": "Absolute path on the remote host. Overwrites if exists. Parent dirs auto-created via SFTP mkdir."},
+    },
+    "required": ["local_path", "remote_path"],
+}
+
+DOWNLOAD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "remote_path": {"type": "string", "description": "Absolute path on the remote host."},
+        "local_path": {"type": "string", "description": "Absolute path on the LOCAL machine. ~ is expanded. Parent directory must already exist (not auto-created)."},
+    },
+    "required": ["remote_path", "local_path"],
+}
+
+REMOTEINFO_SCHEMA = {
+    "type": "object",
+    "properties": {},
+    "required": [],
+}
+
 ALL_TOOL_SCHEMAS = {
     "Read": READ_SCHEMA,
     "Write": WRITE_SCHEMA,
@@ -143,6 +167,9 @@ ALL_TOOL_SCHEMAS = {
     "Glob": GLOB_SCHEMA,
     "Grep": GREP_SCHEMA,
     "Feedback": FEEDBACK_SCHEMA,
+    "Upload": UPLOAD_SCHEMA,
+    "Download": DOWNLOAD_SCHEMA,
+    "RemoteInfo": REMOTEINFO_SCHEMA,
 }
 
 
@@ -194,10 +221,38 @@ FEEDBACK_DESC = (
     "Use 'bug' when a remote-mcp tool behaves wrong; 'enhancement' for tool improvements you imagine while working. "
     "Brief, non-blocking — file and continue your task."
 )
+UPLOAD_DESC = (
+    "Push a local file to the remote via SFTP. Binary-safe. "
+    "On Linux/macOS, PREFER `Bash(\"scp <local> <user>@<host>:<remote>\", run_in_background=true)` instead — "
+    "it's non-blocking, handles any size, and supports resume with rsync. "
+    "This tool is primarily for Windows users without scp in PATH. "
+    "Max file size: transfer_size_cap (default 100 MB); larger files return an Error "
+    "with a ready-to-paste scp command."
+)
+
+DOWNLOAD_DESC = (
+    "Pull a remote file to local via SFTP. Binary-safe. "
+    "On Linux/macOS, PREFER `Bash(\"scp <user>@<host>:<remote> <local>\", run_in_background=true)` — "
+    "non-blocking, any size, resumable. "
+    "This tool is primarily for Windows users without scp. "
+    "Max file size: transfer_size_cap (default 100 MB); larger returns an Error "
+    "with a ready-to-paste scp command."
+)
+
+REMOTEINFO_DESC = (
+    "Return the connection's CONFIGURED identity: host label, user, hostname, "
+    "port, jump_host. No SSH call is made — values come from "
+    "~/.config/remote-mcp/config.yaml. VPN-safe: in VPN scenarios the IP "
+    "the remote reports via `hostname -I` differs from the IP the client "
+    "uses to reach it; this tool returns the latter."
+)
 
 ALL_TOOL_DESCRIPTIONS = {
     "Read": READ_DESC, "Write": WRITE_DESC, "Edit": EDIT_DESC,
     "MultiEdit": MULTIEDIT_DESC, "MultiRead": MULTIREAD_DESC,
     "FileStat": FILESTAT_DESC, "Bash": BASH_DESC, "Glob": GLOB_DESC,
     "Grep": GREP_DESC, "Feedback": FEEDBACK_DESC,
+    "Upload": UPLOAD_DESC,
+    "Download": DOWNLOAD_DESC,
+    "RemoteInfo": REMOTEINFO_DESC,
 }

@@ -2,12 +2,19 @@ import json
 from remote_mcp.schemas import ALL_TOOL_SCHEMAS
 
 
-def test_all_ten_tools_have_schemas():
+def test_all_thirteen_tools_have_schemas():
     expected = {
         "Read", "Write", "Edit", "MultiEdit", "MultiRead", "FileStat",
         "Bash", "Glob", "Grep", "Feedback",
+        "Upload", "Download", "RemoteInfo",
     }
     assert set(ALL_TOOL_SCHEMAS.keys()) == expected
+
+
+def test_required_lists_for_new_tools():
+    assert set(ALL_TOOL_SCHEMAS["Upload"]["required"]) == {"local_path", "remote_path"}
+    assert set(ALL_TOOL_SCHEMAS["Download"]["required"]) == {"remote_path", "local_path"}
+    assert ALL_TOOL_SCHEMAS["RemoteInfo"]["required"] == []  # no params
 
 
 def test_each_schema_has_required_keys():
