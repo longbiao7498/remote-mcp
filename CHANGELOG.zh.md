@@ -6,6 +6,20 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)；版本遵循
 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [Unreleased]
+
+### 变更
+
+由 agent 反馈驱动（`Feedback` 工具首次真实使用 —— 见 `~/.local/share/remote-mcp/feedback.jsonl`）：
+
+- **Grep 默认跳过二进制文件**。给常驻 grep 标志加了 `-I`。以前 ELF 可执行文件、vim swap 文件、归档等的匹配会污染输出，现在静默排除。与原生 Claude Code Grep（使用 ripgrep）行为一致。**未引入新参数**——如确实需要搜索二进制内容，直接用 Bash。*Agent 在 `tjcs_ln5` 主机上看到 `printf` 在 ELF 二进制和 `.swp` 文件中匹配后报告。*
+
+- **Edit 和 MultiEdit 的 `found N times` 错误现在列出匹配行号**。原文：`Error: old_string found 3 times in <path>. Provide more context to match uniquely, or set replace_all=true to replace all.` 现在：`Error: old_string found 3 times in <path> (lines 19, 20, 21). Provide more context to match uniquely, or set replace_all=true to replace all.` 行号列表上限 10 个，超出加后缀 `..., ... +K more`。agent 想做唯一替换时省一次 Grep 跟进。同样的改进也应用到 MultiEdit 的 per-edit 错误。*同一测试会话中 agent 建议。*
+
+### 说明
+
+发布前文档里发现的同类 bug 也记录在此供存档：写文档过程中我错误地编造了几个外部工具的具体细节（`--global` 标志、`/tools` 斜杠命令、`~/.claude/logs/` 日志路径、虚构的多行 `--test` 输出）。全部由专家审查发现并修正；修正与本次 `[Unreleased]` 同窗口入库。教训写入项目今后的文档撰写规范：任何关于外部工具的 CLI / 路径 / 输出格式声明，必须通过运行命令、读源码或查官方文档来验证——不能凭印象编。
+
 ## [0.1.0] - 2026-05-26
 
 初始发布。完整实现 v2 设计规范。

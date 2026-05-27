@@ -144,3 +144,28 @@ def test_grep_invalid_output_mode(grep_conn):
         grep_conn, "foo", "/tmp/rmcp-grep-test", output_mode="bogus"
     )
     assert out.startswith("Error: invalid output_mode")
+
+
+def test_grep_skips_binary_files(grep_conn):
+    """
+    Agent feedback (2026-05-27): Grep should default to skipping binary
+    files; binary matches (ELF executables, vim swap files) pollute
+    output. Implementation uses GNU grep's `-I` flag, matching native
+    ripgrep behavior.
+    """
+    import os
+    # Write a real binary file (contains NUL bytes — grep -I will skip)
+    sftp = grep_conn.get_sftp()
+    bin_path = "/tmp/rmcp-grep-test/binary_blob"
+    with sftp.file(bin_path, "wb") as f:
+        f.write(b"printf\x00\x00\x00printf\x00\x00")  # has 'printf' literal but binary
+    text_path = "/tmp/rmcp-grep-test/text_file.txt"
+    grep_conn.get_sftp().file(text_path, "w").write(b"printf line in text\n")
+
+    # files_with_matches: should list ONLY the text file, NOT the binary
+    out = grep_tool.grep_tool(
+        grep_conn, "printf", "/tmp/rmcp-grep-test",
+        output_mode="files_with_matches",
+    )
+    assert "text_file.txt" in out
+    assert "binary_blob" not in out

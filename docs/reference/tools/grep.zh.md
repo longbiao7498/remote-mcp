@@ -73,7 +73,7 @@ No matches found
 
 ## 行为说明
 
-- 运行 `grep -r -E`（递归、扩展正则）。`-r` 标志始终存在。
+- 运行 `grep -r -I -E`（递归、**跳过二进制文件**、扩展正则）。`-r` 和 `-I` 标志始终存在。`-I` 表示二进制文件（ELF 可执行文件、vim swap 文件、归档等）会被静默排除——agent 几乎用不到二进制内容里的匹配，这些以前只会污染输出。该行为与原生 ripgrep 一致。**无开关**可以打开二进制搜索；如确实需要，请用 Bash 直接调用 `grep` 并显式指定标志。
 - 上下文参数（`before`、`after`、`context`）仅在 `output_mode="content"` 时传递。在 `"files_with_matches"` 和 `"count"` 模式下这些参数被静默忽略——底层 `grep` 标志与 `-l` 和 `-c` 冲突。
 - 当 `context > 0` 且 `before`/`after` 中一个或两个也被设置时，`context` 优先并覆盖两者。
 - `include` 以 `--include=<value>` 传递。值在插入命令前经过 shell 引号处理。空字符串时完全省略该标志。

@@ -31,7 +31,7 @@ This wording is API-stable — consumers (especially Claude Code's error-recover
 | File does not exist (SFTP `IOError` on open) | `Error: File not found: <file_path>` |
 | `old_string` not found in file (zero occurrences, `replace_all=False`) | `Error: old_string not found in <file_path>` |
 | `old_string` not found in file (zero occurrences, `replace_all=True`) | `Error: old_string not found in <file_path>` |
-| `old_string` found more than once and `replace_all=False` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely, or set replace_all=true to replace all.` |
+| `old_string` found more than once and `replace_all=False` | `Error: old_string found <N> times in <file_path> (lines <L1, L2, ...>). Provide more context to match uniquely, or set replace_all=true to replace all.` |
 
 ### MultiEdit
 
@@ -41,7 +41,7 @@ This wording is API-stable — consumers (especially Claude Code's error-recover
 | File does not exist (SFTP `IOError` on open) | `Error: File not found: <file_path>` |
 | Edit N's `old_string` not found (zero occurrences, `replace_all=False`) | `Error: edit #<N>: old_string not found` |
 | Edit N's `old_string` not found (zero occurrences, `replace_all=True`) | `Error: edit #<N>: old_string not found` |
-| Edit N's `old_string` found more than once and `replace_all=False` | `Error: edit #<N>: old_string found <M> times. Provide more context or set replace_all=true.` |
+| Edit N's `old_string` found more than once and `replace_all=False` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
 
 ### MultiRead
 

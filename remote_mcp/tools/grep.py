@@ -54,7 +54,12 @@ def grep_tool(conn: SSHConnection, pattern: str, path: str,
     else:
         mode_flag = "-c"
 
-    flags = ["-r", mode_flag]
+    # `-I` skips binary files (ELF, swap files, etc.) — matches the
+    # behavior of native Claude Code Grep (which uses ripgrep) and
+    # avoids the noise of meaningless matches inside binary content.
+    # No opt-out flag exposed; if binary search is genuinely needed,
+    # the agent can use Bash with explicit grep flags.
+    flags = ["-r", "-I", mode_flag]
     if case_insensitive:
         flags.append("-i")
 

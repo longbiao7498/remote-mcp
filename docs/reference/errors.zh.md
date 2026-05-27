@@ -31,7 +31,7 @@
 | 文件不存在（SFTP 打开时 `IOError`） | `Error: File not found: <file_path>` |
 | 文件中未找到 `old_string`（零次匹配，`replace_all=False`） | `Error: old_string not found in <file_path>` |
 | 文件中未找到 `old_string`（零次匹配，`replace_all=True`） | `Error: old_string not found in <file_path>` |
-| `old_string` 出现多次且 `replace_all=False` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely, or set replace_all=true to replace all.` |
+| `old_string` 出现多次且 `replace_all=False` | `Error: old_string found <N> times in <file_path> (lines <L1, L2, ...>). Provide more context to match uniquely, or set replace_all=true to replace all.` |
 
 ### MultiEdit
 
@@ -41,7 +41,7 @@
 | 文件不存在（SFTP 打开时 `IOError`） | `Error: File not found: <file_path>` |
 | 第 N 条编辑的 `old_string` 未找到（零次匹配，`replace_all=False`） | `Error: edit #<N>: old_string not found` |
 | 第 N 条编辑的 `old_string` 未找到（零次匹配，`replace_all=True`） | `Error: edit #<N>: old_string not found` |
-| 第 N 条编辑的 `old_string` 出现多次且 `replace_all=False` | `Error: edit #<N>: old_string found <M> times. Provide more context or set replace_all=true.` |
+| 第 N 条编辑的 `old_string` 出现多次且 `replace_all=False` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
 
 ### MultiRead
 

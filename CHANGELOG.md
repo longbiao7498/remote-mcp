@@ -6,6 +6,20 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+Driven by agent feedback (the `Feedback` tool's first real-use entries — see `~/.local/share/remote-mcp/feedback.jsonl`):
+
+- **Grep skips binary files by default.** Added `-I` to the always-on grep flags. Binary artifacts (ELF executables, vim swap files, archives) used to show up in matches and pollute output; now they're silently excluded. Matches the behavior of native Claude Code Grep (which uses ripgrep). No new parameter — if binary search is genuinely needed, use Bash directly. *Reported by agent on host `tjcs_ln5` after seeing `printf` matches in an ELF binary and a `.swp` file.*
+
+- **Edit and MultiEdit `found N times` error now lists matching line numbers.** Wording was previously: `Error: old_string found 3 times in <path>. Provide more context to match uniquely, or set replace_all=true to replace all.` It's now: `Error: old_string found 3 times in <path> (lines 19, 20, 21). Provide more context to match uniquely, or set replace_all=true to replace all.` Lists are capped at the first 10 matches, then suffix `..., ... +K more`. Saves the agent a follow-up Grep when it intended a unique replace. Same enhancement applied to MultiEdit's per-edit error. *Suggested by agent during the same test session.*
+
+### Notes
+
+The class of bug found in pre-release docs is also documented for posterity: the doc-writing pass mistakenly invented several external-tool specifics (a `--global` flag, a `/tools` slash command, the `~/.claude/logs/` log path, a fabricated multi-line `--test` output). All were caught by an expert audit and corrected; the corrections are in this same `[Unreleased]` window. The lesson informs the project's writing convention going forward: any CLI / path / output-format claim about an external tool must be verified by running the command, reading source, or fetching docs — not guessed.
+
 ## [0.1.0] - 2026-05-26
 
 Initial release. Implements the v2 design spec in full.

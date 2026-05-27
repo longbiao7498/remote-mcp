@@ -73,7 +73,7 @@ No matches found
 
 ## Behavior notes
 
-- Runs `grep -r -E` (recursive, extended regex). The `-r` flag is always present.
+- Runs `grep -r -I -E` (recursive, **binary-files skipped**, extended regex). The `-r` and `-I` flags are always present. The `-I` flag means binary files (ELF executables, vim swap files, archives, etc.) are silently excluded — matches inside binary content are almost never meaningful to an agent and previously polluted output. This matches native ripgrep behavior. There is no opt-in flag to search binary files; if you genuinely need that, use Bash with explicit `grep` flags.
 - Context parameters (`before`, `after`, `context`) are passed only when `output_mode="content"`. In `"files_with_matches"` and `"count"` modes these parameters are silently ignored — the underlying `grep` flags would conflict with `-l` and `-c`.
 - When both `context > 0` and one or both of `before`/`after` are set, `context` takes precedence and overrides both.
 - `include` is passed as `--include=<value>`. The value is shell-quoted before insertion into the command. An empty string omits the flag entirely.

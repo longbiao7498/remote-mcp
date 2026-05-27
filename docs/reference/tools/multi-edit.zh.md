@@ -53,7 +53,7 @@
 | `edits` 列表为空 | `Error: edits list is empty` |
 | 文件不存在 | `Error: File not found: <file_path>` |
 | 第 #N 条编辑的 `old_string` 未找到（包括在前序编辑应用后的情况） | `Error: edit #N: old_string not found` |
-| 第 #N 条编辑的 `old_string` 出现多次且 `replace_all` 为 `false` | `Error: edit #N: old_string found <M> times. Provide more context or set replace_all=true.` |
+| 第 #N 条编辑的 `old_string` 出现多次且 `replace_all` 为 `false` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
 
 ## 行为说明
 

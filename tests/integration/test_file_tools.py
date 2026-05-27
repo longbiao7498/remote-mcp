@@ -138,6 +138,9 @@ def test_edit_multiple_matches(conn):
     out = edit_tool.edit(conn, "/tmp/rmcp-edit-3.txt", "foo", "bar")
     assert "old_string found 3 times" in out
     assert "/tmp/rmcp-edit-3.txt" in out
+    # Line numbers should be included (agent feedback enhancement)
+    assert "lines 1, 2, 3" in out
+    assert "replace_all=true" in out
     # File unchanged
     sftp = conn.get_sftp()
     with sftp.file("/tmp/rmcp-edit-3.txt", "r") as f:

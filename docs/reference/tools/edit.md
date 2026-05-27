@@ -42,7 +42,7 @@ A string. The format depends on outcome:
 |---------|-----------------|
 | File does not exist | `Error: File not found: <file_path>` |
 | `old_string` not present in file | `Error: old_string not found in <file_path>` |
-| `old_string` present more than once and `replace_all` is `false` | `Error: old_string found <N> times in <file_path>. Provide more context to match uniquely, or set replace_all=true to replace all.` |
+| `old_string` present more than once and `replace_all` is `false` | `Error: old_string found <N> times in <file_path> (lines <L1, L2, ...>). Provide more context to match uniquely, or set replace_all=true to replace all.` |
 
 ## Behavior notes
 

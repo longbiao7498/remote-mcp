@@ -53,7 +53,7 @@ A string. The format depends on outcome:
 | `edits` list is empty | `Error: edits list is empty` |
 | File does not exist | `Error: File not found: <file_path>` |
 | Edit #N's `old_string` not found (including after prior edits have been applied) | `Error: edit #N: old_string not found` |
-| Edit #N's `old_string` found more than once and `replace_all` is `false` | `Error: edit #N: old_string found <M> times. Provide more context or set replace_all=true.` |
+| Edit #N's `old_string` found more than once and `replace_all` is `false` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
 
 ## Behavior notes
 

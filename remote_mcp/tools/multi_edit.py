@@ -2,6 +2,7 @@
 from typing import List, Dict, Tuple, Optional
 
 from ..connection import SSHConnection
+from .edit import _match_line_numbers
 
 
 def apply_edits(content: str, edits: List[Dict]) -> Tuple[Optional[str], Optional[str]]:
@@ -36,8 +37,10 @@ def apply_edits(content: str, edits: List[Dict]) -> Tuple[Optional[str], Optiona
             if count == 0:
                 return None, f"Error: edit #{i}: old_string not found"
             if count > 1:
+                line_list = _match_line_numbers(current, old)
                 return None, (
-                    f"Error: edit #{i}: old_string found {count} times. "
+                    f"Error: edit #{i}: old_string found {count} times "
+                    f"(lines {line_list}). "
                     f"Provide more context or set replace_all=true."
                 )
             current = current.replace(old, new, 1)
