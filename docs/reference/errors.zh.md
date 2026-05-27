@@ -94,6 +94,31 @@
 | `category` 不是 `"bug"` 或 `"enhancement"` | `Error: category must be 'bug' or 'enhancement', got <category>`（值经 `repr` 格式化，例如 `'other'`） |
 | `summary` 为空或仅含空白字符 | `Error: summary cannot be empty` |
 
+### Upload
+
+| 触发条件 | 返回字符串 |
+|---------|-----------|
+| `local_path` 不存在 | `Error: Local file not found: <local_path>` |
+| `local_path` 是目录 | `Error: Local path is a directory, not a file: <local_path>` |
+| 本地文件大小 > `transfer_size_cap` | `Error: File too large for Upload: <N> bytes exceeds transfer_size_cap (<cap> bytes). For files this size, the right tool is Bash with scp or rsync: Bash(command="scp <local> <user>@<host>:<remote>", run_in_background=true). It runs in background, handles any size, and supports resume.` |
+| 远程写入权限拒绝 | `Error: Permission denied: <remote_path>` |
+| 其他 SFTP 失败 | `Error: <message>` |
+
+### Download
+
+| 触发条件 | 返回字符串 |
+|---------|-----------|
+| 本地父目录缺失 | `Error: Local parent directory not found: <dir>` |
+| `remote_path` 不存在 | `Error: Remote file not found: <remote_path>` |
+| `remote_path` 是目录 | `Error: Remote path is a directory, not a file: <remote_path>` |
+| 远程文件大小 > `transfer_size_cap` | `Error: File too large for Download: <N> bytes exceeds transfer_size_cap (<cap> bytes). For files this size, the right tool is Bash with scp or rsync: Bash(command="scp <user>@<host>:<remote> <local>", run_in_background=true). It runs in background, handles any size, and supports resume.` |
+| 本地写入权限拒绝 | `Error: Permission denied: <local_path>` |
+| 其他 SFTP 失败 | `Error: <message>` |
+
+### RemoteInfo
+
+RemoteInfo 不会失败——它返回内存中的配置。无错误字符串。
+
 ### 服务器 / 分发
 
 | 触发条件 | 返回字符串 |

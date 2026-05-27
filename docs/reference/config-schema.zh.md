@@ -31,6 +31,7 @@
 | `glob_output_limit` | integer | 否 | `1000` | Glob 工具在截断前返回的最大文件路径数。 |
 | `read_size_cap` | integer | 否 | `262144` | Read 和 MultiRead 返回的最大字节数（默认 256 KB），超出时截断。 |
 | `bash_output_cap` | integer | 否 | `102400` | Bash 返回的最大字节数（默认 100 KB），超出时截断。 |
+| `transfer_size_cap` | int | 否 | 104857600 (100 MB) | `Upload` 或 `Download` 单文件最大传输字节数。超过会返回 `Error:` 字符串，并附上可直接粘贴的 `Bash + scp` 命令。如确实需要传更大的文件而不想切到 scp，调高此值。 |
 
 ## 最简示例
 

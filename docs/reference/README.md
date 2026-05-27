@@ -22,6 +22,9 @@ One page per tool exposed by remote-mcp. Each page documents: full parameter sch
 | [Glob](./tools/glob.md) | Find files matching a glob pattern (server-side `find`) |
 | [Grep](./tools/grep.md) | Search file contents for a regex (server-side `grep` with context support) |
 | [Feedback](./tools/feedback.md) | Record a local bug/enhancement note about remote-mcp itself |
+| [Upload](./tools/upload.md) | Push a local file to the remote via SFTP (binary-safe). Windows convenience; Linux prefers Bash + scp. |
+| [Download](./tools/download.md) | Pull a remote file to local via SFTP (binary-safe). Windows convenience; Linux prefers Bash + scp. |
+| [RemoteInfo](./tools/remote-info.md) | Return the connection's configured identity (host, user, hostname, port, jump_host). No SSH call — VPN-safe. |
 
 ## System reference
 

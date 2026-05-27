@@ -94,6 +94,31 @@ No-match (exit code 1 or empty stdout) is not an error: `"No matches found"` is 
 | `category` is not `"bug"` or `"enhancement"` | `Error: category must be 'bug' or 'enhancement', got <category>` (value is `repr`-formatted, e.g., `'other'`) |
 | `summary` is blank or whitespace-only | `Error: summary cannot be empty` |
 
+### Upload
+
+| Trigger | Returned string |
+|---------|-----------------|
+| `local_path` does not exist | `Error: Local file not found: <local_path>` |
+| `local_path` is a directory | `Error: Local path is a directory, not a file: <local_path>` |
+| Local file size > `transfer_size_cap` | `Error: File too large for Upload: <N> bytes exceeds transfer_size_cap (<cap> bytes). For files this size, the right tool is Bash with scp or rsync: Bash(command="scp <local> <user>@<host>:<remote>", run_in_background=true). It runs in background, handles any size, and supports resume.` |
+| Remote write denied | `Error: Permission denied: <remote_path>` |
+| Other SFTP failure | `Error: <message>` |
+
+### Download
+
+| Trigger | Returned string |
+|---------|-----------------|
+| Local parent directory missing | `Error: Local parent directory not found: <dir>` |
+| `remote_path` does not exist | `Error: Remote file not found: <remote_path>` |
+| `remote_path` is a directory | `Error: Remote path is a directory, not a file: <remote_path>` |
+| Remote file size > `transfer_size_cap` | `Error: File too large for Download: <N> bytes exceeds transfer_size_cap (<cap> bytes). For files this size, the right tool is Bash with scp or rsync: Bash(command="scp <user>@<host>:<remote> <local>", run_in_background=true). It runs in background, handles any size, and supports resume.` |
+| Local write denied | `Error: Permission denied: <local_path>` |
+| Other SFTP failure | `Error: <message>` |
+
+### RemoteInfo
+
+RemoteInfo cannot fail — it returns the in-memory config. No error strings.
+
 ### Server / dispatch
 
 | Trigger | Returned string |
