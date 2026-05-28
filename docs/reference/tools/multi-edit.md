@@ -32,7 +32,7 @@ Apply a sequence of string replacements to a single remote file in one SFTP read
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to the file on the remote host |
+| `file_path` | string | yes | — | Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `edits` | array | yes | — | Ordered list of edit objects to apply |
 | `edits[].old_string` | string | yes | — | Exact substring to replace |
 | `edits[].new_string` | string | yes | — | Replacement substring |
@@ -45,6 +45,8 @@ A string. The format depends on outcome:
 **On success:** `Successfully applied <N> edits to <file_path>` where `<N>` is the number of edits in the list.
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

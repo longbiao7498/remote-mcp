@@ -33,7 +33,7 @@ Search file contents for an extended regex pattern on the remote host using serv
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `pattern` | string | yes | — | Extended regex pattern (`grep -E`). |
-| `path` | string | yes | — | Starting file or directory on the remote host. Searched recursively when a directory. |
+| `path` | string | yes | — | Starting file or directory on the remote host. Searched recursively when a directory. Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `include` | string | no | `""` | Filename glob passed to `--include` (e.g., `"*.py"`). Empty string means no filtering. |
 | `case_insensitive` | boolean | no | `false` | When `true`, passes `-i` to `grep`. |
 | `before` | integer | no | `0` | Lines of context before each match (`-B N`). Ignored when `context > 0` or `output_mode` is not `"content"`. |
@@ -54,7 +54,9 @@ Search file contents for an extended regex pattern on the remote host using serv
 
 A string. The format depends on outcome:
 
-**On success:** raw `grep` output as described by `output_mode`, truncated to `head_limit` lines.
+**On success:** raw `grep` output as described by `output_mode`, truncated to `head_limit` lines. Output paths are absolute (e.g., `/opt/app/foo.py`) — they incorporate the resolved search root. To get relative output, run inside a Bash call with `cd <cwd> && grep ...`.
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 **No matches (exit code 1 or empty output):**
 

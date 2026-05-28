@@ -24,7 +24,7 @@ None.
 
 ## Returns
 
-A string of 5 lines, one per field, in `key=value` format:
+A string of 6 lines, one per field, in `key=value` format:
 
 ```
 host=<config-key>
@@ -32,7 +32,10 @@ user=<config-user>
 hostname=<config-hostname>
 port=<config-port>
 jump_host=<config-jump-host or "none">
+cwd=<configured-cwd>
 ```
+
+- `cwd=<configured-cwd>`: the remote working dir all relative-path tool calls resolve against (~ already expanded).
 
 Example:
 
@@ -42,6 +45,7 @@ user=ubuntu
 hostname=10.0.0.50
 port=22
 jump_host=bastion
+cwd=/home/ubuntu/project
 ```
 
 ## Error wording

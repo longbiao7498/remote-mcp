@@ -33,7 +33,7 @@ Read lines from a file on the remote host using server-side `sed` slicing.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to the file on the remote host |
+| `file_path` | string | yes | — | Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `offset` | integer | no | `1` | First line to return (1-based). Must be >= 1. |
 | `limit` | integer | no | `2000` | Maximum number of lines to return. Must be >= 1. |
 
@@ -44,6 +44,8 @@ A string. The format depends on outcome:
 **On success:** Each line is prefixed with a 1-based line number in the format `     <lineno>\t<content>` (five spaces, the line number, a tab character, then the raw line content including its newline). Lines are numbered starting from `offset`. If the formatted output exceeds `read_size_cap` (default 256 KB), the output is truncated at that byte boundary and a note is appended: `\n... [truncated to <N> bytes]`.
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

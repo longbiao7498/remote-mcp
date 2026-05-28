@@ -23,7 +23,7 @@ Replace an exact substring in a remote file via SFTP read-modify-write, with a u
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to the file on the remote host |
+| `file_path` | string | yes | — | Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `old_string` | string | yes | — | The exact substring to replace |
 | `new_string` | string | yes | — | The replacement substring |
 | `replace_all` | boolean | no | `false` | If `true`, replace all occurrences; skip uniqueness check |
@@ -35,6 +35,8 @@ A string. The format depends on outcome:
 **On success:** `Successfully edited <file_path>`
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

@@ -23,8 +23,8 @@
 
 | 名称 | 类型 | 必填 | 默认值 | 描述 |
 |------|------|------|--------|------|
-| `local_path` | string | 是 | — | **本机**绝对路径。`~` 会展开。 |
-| `remote_path` | string | 是 | — | 远程绝对路径。已存在则覆盖。父目录通过 SFTP `mkdir` 自动创建。 |
+| `local_path` | string | 是 | — | **本机**绝对路径或含 ~（通过 `os.path.expanduser` 展开）。**不受**已配置的远程 cwd 影响。 |
+| `remote_path` | string | 是 | — | 远程绝对路径，或相对于已配置 cwd 的相对路径（与 Read/Write 等一致）。已存在则覆盖。父目录通过 SFTP `mkdir` 自动创建。 |
 
 ## 返回值
 
@@ -33,6 +33,8 @@
 **成功**：`Successfully uploaded <N> bytes from <local_path> to <remote_path>`，其中 `<N>` 是本地文件的字节数。
 
 **失败**：见下面[错误措辞](#错误措辞)。
+
+MCP 服务器会在每次输出（成功和错误）后追加 `\n\n[host=X cwd=Y]`。工具本身的输出是该后缀之前的所有内容。
 
 ## 错误措辞
 

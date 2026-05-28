@@ -25,7 +25,7 @@ Get metadata (existence, size, mtime, mode) for one or more remote paths without
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_paths` | string or array of strings | yes | — | Single path or list of paths on the remote host to stat |
+| `file_paths` | string or array of strings | yes | — | Absolute remote path(s), or relative to the configured cwd. ~ is NOT supported (use absolute or relative). Single path or list of paths to stat. |
 
 ## Returns
 
@@ -54,6 +54,8 @@ A string. The format depends on outcome:
 ```
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 
