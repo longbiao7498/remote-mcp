@@ -136,26 +136,38 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
 
 
 def _bash_background(conn: SSHConnection, command: str) -> str:
-    """Background path — rewritten in Task A3."""
-    # Temporary: still use BashSession until A3.
-    session = conn.get_bash_session()
+    """Per-call exec; launches setsid+nohup so it survives channel close."""
     bg_uuid = uuid.uuid4().hex[:12]
     log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
     quoted_cmd = shlex.quote(command)
     quoted_log = shlex.quote(log_path)
+    # setsid makes the new bash a session+group leader so `kill -- -<pid>`
+    # kills the whole group; nohup is a belt-and-suspenders for SIGHUP;
+    # </dev/null detaches stdin; subshell-with-echo captures $! reliably.
     wrap = (
         f"( setsid nohup bash -c {quoted_cmd} "
         f"> {quoted_log} 2>&1 </dev/null & echo \"BG_PID=$!\" )"
     )
+    client = conn._client
+    if client is None:
+        return f"Error: SSH connection to {conn.config.name} is not open"
+    stdin, stdout, stderr = client.exec_command(wrap, timeout=10.0)
+    output = stdout.read().decode("utf-8", errors="replace")
+    exit_code = stdout.channel.recv_exit_status()
     try:
-        result = session.execute(wrap, timeout=10.0)
-    except TimeoutError:
-        return f"Error: failed to launch background task on {conn.config.name} (timeout)"
-    m = re.search(r"BG_PID=(\d+)", result.output)
+        stdout.channel.close()
+    except Exception:
+        pass
+    if exit_code != 0:
+        return (
+            f"Error: failed to launch background task on {conn.config.name}. "
+            f"Output: {output[:500]}"
+        )
+    m = re.search(r"BG_PID=(\d+)", output)
     if not m:
         return (
             f"Error: failed to start background task on {conn.config.name}. "
-            f"Output: {result.output[:500]}"
+            f"Output: {output[:500]}"
         )
     pid = m.group(1)
     return (
