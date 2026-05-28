@@ -105,3 +105,41 @@ def test_close_does_not_delete_snapshot_file(sshd_container, ssh_key):
         assert out == "PRESENT", f"snapshot file at {snap_path} was deleted by close()"
     finally:
         client.close()
+
+
+def test_reconnect_when_file_present_does_not_reupload(conn, sshd_kill_and_restart):
+    """Most common case: remote file still there → no re-upload, no flag set."""
+    sshd_kill_and_restart(conn)
+    conn._do_reconnect()
+    assert conn._snapshot_reuploaded is False
+    assert conn._snapshot_error is None
+
+
+def test_reconnect_when_file_missing_reuploads(conn, sshd_kill_and_restart):
+    """If remote file is gone, _do_reconnect re-uploads from local cache."""
+    # Delete the remote snapshot file out-of-band
+    snap_path = conn._snapshot_path
+    sftp = conn.get_sftp()
+    sftp.remove(snap_path)
+    sshd_kill_and_restart(conn)
+    conn._do_reconnect()
+    # File should be back
+    r = conn.exec(f"test -f {snap_path} && echo OK")
+    assert r.stdout.strip() == "OK"
+    assert conn._snapshot_reuploaded is True
+    assert conn._snapshot_error is None
+
+
+def test_reconnect_does_not_recapture(conn, sshd_kill_and_restart, monkeypatch):
+    """_do_reconnect must NOT call _capture_snapshot (bashrc must not be re-run)."""
+    capture_calls = {"count": 0}
+    orig = conn._capture_snapshot
+
+    def spy():
+        capture_calls["count"] += 1
+        orig()
+
+    monkeypatch.setattr(conn, "_capture_snapshot", spy)
+    sshd_kill_and_restart(conn)
+    conn._do_reconnect()
+    assert capture_calls["count"] == 0

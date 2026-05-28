@@ -242,10 +242,18 @@ class SSHConnection:
         return flag
 
     def _do_reconnect(self) -> None:
-        """Tear down (if needed) and rebuild. Sets _reconnected=True on success.
-        connect() re-runs _capture_snapshot() (transitional) which overwrites the file."""
+        """Tear down channels and rebuild SSH layer. Snapshot file is preserved
+        in ~/.cache/ — re-uploaded from local cache only if remote file is
+        missing. Sets _reconnected=True on success.
+        """
         self.close()
         self.connect()
+        # Snapshot: check remote, re-upload from local cache only if missing.
+        # Never re-capture (would re-run bash -ic and pick up bashrc changes).
+        if self._snapshot_content is not None:
+            if not self._snapshot_exists_on_remote():
+                self._upload_snapshot_to_remote()
+                self._snapshot_reuploaded = True
         self._reconnected = True
 
     def exec_with_retry(self, command: str, timeout: Optional[float] = None) -> ExecResult:
