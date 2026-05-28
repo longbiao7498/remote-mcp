@@ -27,8 +27,8 @@
 - **后台 `Bash`**（`run_in_background=true`）——启动 10 分钟的构建 / `npm install` / 训练任务不阻塞 agent 的对话。
 
 **🛡 扛得住远程工作里的脏活**
-- **持久 shell 状态**——`cd`、`export`、`source` 过的文件在多次 `Bash` 调用之间持久。不是裸 SSH 那种每次调用丢状态。
-- **自动重连 + 显式 WARNING**——SSH 断了（VPN 抖、空闲超时），连接自动重建，**并且**下一次工具结果前缀加 `[WARNING] SSH connection to <host> was lost ... cwd is now $HOME, env vars lost`。agent 不会傻乎乎继续用过期路径。
+- **可配置的远程 `cwd`（`--cwd /opt/app`）**——工具接受相对路径，并以配置的工作目录为基准解析。默认为远程 `$HOME`。
+- **自动重连 + 显式 WARNING**——SSH 断了（VPN 抖、空闲超时），连接自动重建，**并且**下一次工具结果加 `[WARNING] SSH connection to <host> was lost ...`。agent 不会傻乎乎继续用过期路径。
 - **后台任务进程组干净 kill**——`kill -- -<pid>` 把派生的子进程一起干掉（包装用 `setsid`）。
 
 **🔁 自我改进的反馈循环**
@@ -85,7 +85,7 @@ Connected to myserver (alice@192.168.1.100). All tools: OK
 每个主机一次 `claude mcp add`：
 
 ```bash
-claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod --cwd /opt/myapp
 ```
 
 重启 Claude Code。工具列表里会出现 10 个新工具，命名形如 `mcp__remote-myserver__Read`、`mcp__remote-myserver__Bash` 等。试着对 agent 说：*"用远程工具看看 /etc/hostname"*，就能看到它们工作。
@@ -141,7 +141,7 @@ agent 知道带宽感知的工作模式后会用得更高效（用 Grep 的 cont
 
 ## 项目状态
 
-v0.1.0——见 [`CHANGELOG.zh.md`](./CHANGELOG.zh.md) 了解本次发布的内容，[`docs/superpowers/specs/`](./docs/superpowers/specs/) 是原始设计规范。
+v0.2.0——见 [`CHANGELOG.zh.md`](./CHANGELOG.zh.md) 了解本次发布的内容，[`docs/superpowers/specs/`](./docs/superpowers/specs/) 是原始设计规范。
 
 ## 许可证
 

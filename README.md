@@ -27,8 +27,8 @@ Other ways to give Claude Code remote access either need software installed on t
 - **Background `Bash`** (`run_in_background=true`) — start a 10-min build / `npm install` / training run without blocking the agent's conversation.
 
 **🛡 Survives the messy parts of remote work**
-- **Persistent shell state** — `cd`, `export`, sourced files all persist across `Bash` tool calls. No naive per-call SSH that loses state.
-- **Auto-reconnect with explicit warning** — when SSH drops (VPN blip, idle timeout), connection rebuilds automatically AND the next tool result is prefixed with `[WARNING] SSH connection to <host> was lost ... cwd is now $HOME, env vars lost`. Agent doesn't silently keep using stale paths.
+- **Configurable remote `cwd` (`--cwd /opt/app`)** — tools accept relative paths; they resolve against the configured working directory. Default is remote `$HOME`.
+- **Auto-reconnect with explicit warning** — when SSH drops (VPN blip, idle timeout), connection rebuilds automatically AND the next tool result is prefixed with `[WARNING] SSH connection to <host> was lost ...`. Agent doesn't silently keep using stale paths.
 - **Clean process-group kill for background jobs** — `kill -- -<pid>` takes down spawned children too (the wrapper uses `setsid`).
 
 **🔁 Self-improving dev loop**
@@ -85,7 +85,7 @@ If you see this, the SSH connection works and `remote-mcp` is healthy. If you ge
 One `claude mcp add` per host:
 
 ```bash
-claude mcp add --scope user remote-myserver -- python -m remote_mcp --host myserver
+claude mcp add --scope user remote-prod -- python -m remote_mcp --host prod --cwd /opt/myapp
 ```
 
 Restart Claude Code. Ten new tools will appear in the tool list, namespaced as `mcp__remote-myserver__Read`, `mcp__remote-myserver__Bash`, and so on. Ask the agent something like *"use the remote tools to show me /etc/hostname"* and you'll see them in action.
@@ -141,7 +141,7 @@ Every page is bilingual — every `name.md` has a `name.zh.md` sibling.
 
 ## Project status
 
-v0.1.0 — see [`CHANGELOG.md`](./CHANGELOG.md) for what's in this release and [`docs/superpowers/specs/`](./docs/superpowers/specs/) for the original design.
+v0.2.0 — see [`CHANGELOG.md`](./CHANGELOG.md) for what's in this release and [`docs/superpowers/specs/`](./docs/superpowers/specs/) for the original design.
 
 ## License
 

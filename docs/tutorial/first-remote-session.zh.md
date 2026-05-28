@@ -79,11 +79,12 @@ hosts:
     hostname: your-host.example.com
     user: alice
     key_path: ~/.ssh/id_ed25519
+    cwd: ~/projects/myapp
 
 default_host: myserver
 ```
 
-这就是完整的最简配置。保存文件。
+这就是完整的最简配置。`cwd` 字段设置所有工具解析相对路径时所用的工作目录——省略则默认为远程 `$HOME`。保存文件。
 
 > **关于主机标签的说明：** `myserver` 是你自己取的名字——它会出现在 Claude Code 调用的工具名称中（例如 `mcp__remote-myserver__Read`）。请使用简短且对 slug 友好的名称（字母、数字、连字符）。本教程通篇使用 `myserver`，遇到时请替换为你自己的名称。
 

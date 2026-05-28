@@ -19,31 +19,34 @@
    ```yaml
    hosts:
      prod:
-       hostname: 192.168.1.100
-       user: ubuntu
+       hostname: prod.example.com
+       user: deploy
        key_path: ~/.ssh/id_ed25519
-
-     gpu:
-       hostname: 10.0.0.60
-       user: longbiao
-       key_path: ~/.ssh/id_ed25519
+       cwd: /opt/myapp
 
      staging:
-       hostname: 10.0.0.70
-       user: ubuntu
+       hostname: staging.example.com
+       user: deploy
        key_path: ~/.ssh/id_ed25519
+       cwd: ~/work/staging
+
+     gpu:
+       hostname: gpu.cluster.example.com
+       user: researcher
+       key_path: ~/.ssh/id_ed25519
+       cwd: ~/scratch/current-experiment
 
    default_host: prod
    ```
 
-   `hosts:` 下的每个顶层键即为传递给 `--host` 的主机名。
+   `hosts:` 下的每个顶层键即为传递给 `--host` 的主机名。可选的 `cwd` 字段为所有工具的相对路径提供锚点——`Read("config.yaml")` 会解析为 `<cwd>/config.yaml`。省略则默认为远程 `$HOME`。接受的格式：`/绝对路径`、`~` 或 `~/子路径`；波浪号在连接时展开，路径存在性通过 SFTP stat 验证（路径不存在则启动时报错）。
 
 2. **将每台主机注册为独立的 MCP 服务器**
 
    ```bash
    claude mcp add --scope user remote-prod    -- python -m remote_mcp --host prod
-   claude mcp add --scope user remote-gpu     -- python -m remote_mcp --host gpu
    claude mcp add --scope user remote-staging -- python -m remote_mcp --host staging
+   claude mcp add --scope user remote-gpu     -- python -m remote_mcp --host gpu
    ```
 
    **每行有两个你自己选的 token，外加一堆固定 CLI 语法。** 分开看：

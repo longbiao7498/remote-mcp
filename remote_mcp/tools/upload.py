@@ -9,6 +9,7 @@ import os
 import posixpath
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def upload(conn: SSHConnection, local_path: str, remote_path: str) -> str:
@@ -32,6 +33,11 @@ def upload(conn: SSHConnection, local_path: str, remote_path: str) -> str:
         `"Error: <message>"` for other SFTP errors.
     """
     local = os.path.expanduser(local_path)
+
+    try:
+        remote_path = resolve_path(remote_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
 
     if not os.path.exists(local):
         return f"Error: Local file not found: {local_path}"

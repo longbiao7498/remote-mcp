@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Union
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def file_stat(conn: SSHConnection,
@@ -34,6 +35,14 @@ def file_stat(conn: SSHConnection,
     sftp = conn.get_sftp()
     lines = []
     for fp in file_paths:
+        # Resolve each path individually so a bad entry emits an error line
+        # rather than aborting the whole call (consistent with MultiRead).
+        try:
+            fp = resolve_path(fp, conn.config.cwd or "/")
+        except ValueError as e:
+            lines.append(f"{fp}: Error: {e}")
+            continue
+
         try:
             st = sftp.stat(fp)
         except IOError:

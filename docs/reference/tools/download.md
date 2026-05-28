@@ -23,8 +23,8 @@ Pull a remote file to the local machine via SFTP. Binary-safe.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `remote_path` | string | yes | — | Absolute path on the remote host. |
-| `local_path` | string | yes | — | Absolute path on the LOCAL machine. `~` is expanded. Parent directory must already exist (not auto-created). Overwrites if exists. |
+| `remote_path` | string | yes | — | Absolute remote path, or relative to the configured cwd (same as Read/Write/etc.). |
+| `local_path` | string | yes | — | Absolute LOCAL path or with ~ (expanded via `os.path.expanduser`). NOT subject to the configured remote cwd. Parent directory must already exist (not auto-created). Overwrites if exists. |
 
 ## Returns
 
@@ -33,6 +33,8 @@ A string.
 **On success:** `Successfully downloaded <N> bytes from <remote_path> to <local_path>` where `<N>` is the remote file's byte length.
 
 **On error:** see [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

@@ -6,6 +6,26 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-05-27
+
+### BREAKING CHANGES
+- **Non-persistent Bash**: shell state (cwd, env, source'd venvs) no longer persists across Bash calls. Use `cd dir && cmd`, `FOO=bar cmd`, `venv/bin/python script.py` for inline state. Aligns with Claude Code native behavior.
+- **Output format**: every tool's output now ends with `\n\n[host=X cwd=Y]` (was Bash-only `[host=X cwd=Y]\n` prefix in v0.1.x; now uniformly applied as suffix by the MCP server). Scripts that parse exact byte offsets need updating.
+- **Glob/Grep output paths**: default `path="."` now resolves to the configured cwd → output is absolute paths (`/opt/app/foo.py`), not relative (`./foo.py`). Aligns with Claude Code native.
+
+### Added
+- `--cwd <path>` CLI flag and `hosts.<name>.cwd` YAML field — anchor relative paths in all tools (`Read("config.yaml")` → `<cwd>/config.yaml`). Default = remote `$HOME`. Format must be `/...`, `~`, or `~/...`; invalid format fails fast at startup. Tilde expanded at connect time. Existence validated via SFTP stat — bad cwd → MCP server refuses to start.
+- `remote_mcp/paths.py` with `resolve_path(path, cwd)` helper.
+- `RemoteInfo` output now includes `cwd=<value>` line.
+
+### Removed
+- `remote_mcp/bash_session.py` (persistent shell + sentinel protocol — replaced by per-call exec + snapshot replay).
+- `SSHConnection.get_bash_session()`.
+
+### Changed
+- Reconnect WARNING simplified to: `[WARNING] SSH connection to <host> was lost and has been re-established. Snapshot was rebuilt; if your bashrc has changed since the connection started, the new state takes effect from this point.`
+- Bash timeout now uses `channel.close()` (SIGHUP via channel close) instead of Ctrl-C via PTY. Partial stdout collected before timeout is included in the error output.
+
 ## [0.1.1] - Unreleased
 
 ### Changed

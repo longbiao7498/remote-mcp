@@ -6,48 +6,44 @@
 
 ## 为何静默恢复是被禁止的
 
-诱人的做法是静默地重连，让 agent 继续工作，仿佛什么都没发生。这是错误的，而且重要的是，这种错误在某些事情严重出错之前是不可见的。
+诱人的做法是静默地重连，让 agent 继续工作，仿佛什么都没发生。即使在 v0.2.0 非持久 Bash 模型下——没有累积的 shell 状态可以丢失——静默恢复仍然是错误的，原因很重要：agent 理应知道底层传输发生了中断。
 
-当 SSH 连接断开时，远端 bash 会话的整个状态都丢失了。远端主机上的 bash 进程已经死亡。重连后启动一个新的，它从头开始：工作目录是 `$HOME`，没有之前命令设置的环境变量，没有 source 过的文件，没有别名。如果 agent 在工作流的第三步——设置 Python 虚拟环境、export 了 `DATABASE_URL`、`cd` 进了 `/opt/myapp`——所有这些都消失了。
+在 v0.1.x 持久 bash 模型下，静默重连的后果是严重的：cwd 和所有环境变量都消失了，agent 会在错误的假设下悄悄运行。在 v0.2.0 中，后果较为轻微（快照被重建，配置的 cwd 始终是起点），但静默恢复仍然违反了一个原则：agent 应该对发生的事情有准确的认知。如果重连花了几秒钟，在这段时间内发出的工具调用可能已经失败。agent 应该知道这一点。
 
-一个不知道重连发生的 agent 会继续发出命令，假设之前的上下文完整。它可能运行 `python -m pytest`，期望自己在正确的目录里，却得到一个关于缺少文件的令人困惑的错误，然后试图调试一个看似测试失败的问题，而实际上是上下文崩溃了。这种失败模式是隐蔽的，难以诊断。
+静默恢复用一点即时的清晰（WARNING）换取对哪些工具调用成功、哪台主机出了问题，以及当前快照是否反映了最新环境的潜在困惑。这不是值得做的权衡。
 
-静默恢复用一个小的即时困惑（WARNING）换取一个大的潜在困惑（神秘的命令失败）。这不是值得做的权衡。
-
-## 三部分 WARNING 结构
+## WARNING 结构
 
 WARNING 文本是一份契约。当 `SSHConnection._reconnected` 在成功重连后被设置时，下一次 `call_tool()` 调用会检查该标志、清除它，并在工具结果前追加这条 WARNING：
 
 ```
 [WARNING] SSH connection to <host_name> was lost and has been re-established.
-The remote bash session has been reset: working directory is now $HOME,
-all environment variables set in previous commands are lost.
-Use absolute paths and re-run any necessary setup commands.
+Snapshot was rebuilt; if your bashrc has changed since the connection started,
+the new state takes effect from this point.
 ```
 
-三个部分各有其具体用途：
+每个部分各有其具体用途：
 
-**「SSH connection to \<host_name\> was lost and has been re-established.」** ——这告诉 agent 发生了什么。在多主机会话中，agent 需要知道哪台主机受到影响。一个模糊的「连接已恢复」消息会让它不确定 `prod` 还是 `gpu` 丢失了状态、哪个 bash 会话需要重新初始化、哪些之前的命令可能已经失败。主机名使中断的范围毫不含糊。
+**「SSH connection to \<host_name\> was lost and has been re-established.」** ——这告诉 agent 发生了什么。在多主机会话中，agent 需要知道哪台主机受到影响。一个模糊的「连接已恢复」消息会让它不确定是 `prod` 还是 `gpu` 受到了影响。主机名使中断的范围毫不含糊。
 
-**「working directory is now $HOME, all environment variables set in previous commands are lost.」** ——这告诉 agent 哪些状态丢失了。agent 不能假设重连前的任何内容还存在。具体来说：`cd` 命令在重连后不生效，`export FOO=bar` 在重连后不生效，`source .env` 在重连后不生效。这是 agent 在一个会话中积累的三种最常见的 shell 上下文来源。WARNING 明确地列出它们，以便 agent 可以重建正确的内容。
+**「Snapshot was rebuilt; if your bashrc has changed since the connection started, the new state takes effect from this point.」** ——这告诉 agent 在 v0.2.0 非持久模型下重连的唯一有意义的后果。由于每次 Bash 调用本来就从 source 快照的全新 shell 开始，没有什么累积的 shell 状态会丢失。agent 唯一需要知道的是：快照已从当前 bashrc 重建——如果 bashrc 在中断期间发生了变化，新的 Bash 调用将反映这些变化。agent 可以完全照常继续发出命令，无需任何恢复操作。
 
-**「Use absolute paths and re-run any necessary setup commands.」** ——这告诉 agent 该做什么。「绝对路径」是针对 cwd 问题的具体、可操作的指令：如果 agent 在 `/opt/myapp` 中工作，它应该开始明确使用该路径，而不是假设 bash 会话仍在那里。「重新运行设置命令」涵盖了环境变量问题。
-
-这三个部分都是必须的。一个只说「连接已重建」的 WARNING 在第二和第三部分上失败了。一个解释了丢失了什么但没有说下一步该做什么的 WARNING 是不完整的。
+这是相对于 v0.1.x WARNING 的刻意简化，v0.1.x 要求 agent「使用绝对路径并重新运行设置命令」。那条建议在持久 bash 下是正确的（cwd 和环境变量会丢失），但在 v0.2.0 中不再必要：配置的 cwd 固定在 `config.yaml` 中，快照机制确保每次调用都能自动获得环境设置。
 
 ## 重连后哪些内容存活，哪些不会
 
 **存活的内容：**
-- `SSHConnection` 对象及其配置（主机名、用户、密钥路径、keepalive 设置）
+- `SSHConnection` 对象及其配置（主机名、用户、密钥路径、keepalive 设置、配置的 cwd）
 - Claude Code 工具命名空间中的主机注册
 - `config.yaml` 中的配置
 - 写入远端文件系统的任何文件（写操作通过 SFTP 写到磁盘）
+- 生效的 cwd：由于 cwd 在注册时配置（而非作为 bash 会话状态追踪），重连后每次 Bash 调用仍从配置的 cwd 开始
 
 **不存活的内容：**
-- bash 会话：cwd、所有 export 的环境变量、source 的文件、shell 函数、别名
+- 远端 `/tmp` 上的 bash 快照文件：在重连后重建。中断期间对 bashrc 的任何更改都会反映在新快照中。
 - SFTP 客户端：在重连后懒初始化，对调用方透明
 - 断开时正在进行的任何工具调用：这些返回错误（连接在操作进行时丢失了）
-- 用 `run_in_background=true` 启动的后台进程：这些是旧 bash 会话的子进程或 `setsid` 的后代——如果主机本身仍在运行，`setsid` 过的进程可以存活（它们在自己的会话中），但 agent 在上下文中不再有它们的 PID，在假设它们仍在运行之前应该仔细检查
+- 用 `run_in_background=true` 启动的后台进程：这些是 `setsid` 的后代，生活在自己的会话中——如果主机本身仍在运行，`setsid` 过的进程可以存活，但 agent 在假设它们仍在运行之前应该仔细检查（用 `kill -0 <pid>`）
 
 ## 如果重连失败
 

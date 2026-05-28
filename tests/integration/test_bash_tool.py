@@ -23,15 +23,25 @@ def conn(sshd_container, ssh_key):
 
 def test_bash_foreground_echo(conn):
     out = bash_tool.bash(conn, "echo hi")
-    assert "[host=test cwd=" in out
-    assert "hi" in out
+    # No prefix anymore — suffix is added by server.py (Stage C)
+    assert out.strip() == "hi"
 
 
-def test_bash_foreground_persists_cwd(conn):
+def test_bash_foreground_does_not_persist_cwd(conn):
+    # cd inside one call must not affect the next call (spec §5.2)
+    pwd_before = bash_tool.bash(conn, "pwd").strip().splitlines()[-1]
     bash_tool.bash(conn, "cd /tmp")
-    out = bash_tool.bash(conn, "pwd")
-    assert "cwd=/tmp" in out
-    assert "/tmp" in out
+    pwd_after = bash_tool.bash(conn, "pwd").strip().splitlines()[-1]
+    assert pwd_after == pwd_before, (
+        f"cwd persisted: before={pwd_before!r}, after={pwd_after!r}"
+    )
+
+
+def test_bash_foreground_does_not_persist_env(conn):
+    bash_tool.bash(conn, "export RMCP_TEST_VAR=hello")
+    out = bash_tool.bash(conn, "echo \"VAR=$RMCP_TEST_VAR\"")
+    assert "VAR=" in out
+    assert "VAR=hello" not in out  # var should be empty
 
 
 def test_bash_foreground_nonzero_exit(conn):
@@ -48,8 +58,30 @@ def test_bash_foreground_output_cap(conn):
 
 def test_bash_foreground_timeout(conn):
     out = bash_tool.bash(conn, "sleep 100", timeout=2)
-    assert out.startswith("Error: Command timed out")
+    # Error message format: "Error: Command timed out after Ns on <host>"
+    assert "Error: Command timed out after 2" in out
     assert "on test" in out
+
+
+def test_bash_foreground_timeout_preserves_partial_output(conn):
+    out = bash_tool.bash(conn, "echo START; sleep 100", timeout=2)
+    # Spec §5.4: partial output must survive timeout
+    assert "START" in out
+    assert "Error: Command timed out" in out
+
+
+def test_bash_foreground_stdin_is_devnull(conn):
+    # `cat` with no args reads stdin → without /dev/null it would hang forever
+    out = bash_tool.bash(conn, "cat", timeout=5)
+    # Should return immediately (EOF on stdin)
+    assert "Error: Command timed out" not in out
+
+
+def test_bash_foreground_snapshot_loads_path(conn):
+    # snapshot includes user PATH, so `which bash` should find a path that
+    # at minimum is non-empty
+    out = bash_tool.bash(conn, "which bash")
+    assert "/bash" in out
 
 
 import re
@@ -85,8 +117,7 @@ def test_bash_background_kill_via_process_group(conn):
 
 
 def _parse_last_int(bash_output: str) -> int:
-    """Extract the last integer from bash tool output (skipping the [host=...] prefix line)."""
-    # bash tool output always starts with '[host=... cwd=...]\n'; skip it
+    """Extract the last integer from bash tool output."""
     lines = bash_output.splitlines()
     for line in reversed(lines):
         line = line.strip()
@@ -118,6 +149,13 @@ def test_bash_background_kills_children_via_group(conn):
     assert n_after == 0, f"Expected 0 processes in group after kill, got {n_after}: {pg_after}"
 
 
+def test_bash_background_does_not_use_persistent_session(conn):
+    # No persistent state — the connection has no _bash_session attr at all.
+    assert not hasattr(conn, "_bash_session")
+    bash_tool.bash(conn, "sleep 1", run_in_background=True)
+    assert not hasattr(conn, "_bash_session")
+
+
 def test_bash_background_log_readable(conn):
     out = bash_tool.bash(
         conn, "for i in 1 2 3; do echo line$i; sleep 0.1; done",
@@ -131,3 +169,53 @@ def test_bash_background_log_readable(conn):
     assert "line1" in log_content
     assert "line2" in log_content
     assert "line3" in log_content
+
+
+@pytest.fixture
+def conn_with_cwd(sshd_container, ssh_key):
+    cfg = HostConfig(
+        name="test",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        bash_timeout_default=15,
+        cwd="/tmp",
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    yield c
+    c.close()
+
+
+def test_bash_pwd_uses_configured_cwd(conn_with_cwd):
+    out = bash_tool.bash(conn_with_cwd, "pwd")
+    assert out.strip() == "/tmp"
+
+
+def test_bash_cd_does_not_persist_cwd_resets_to_configured(conn_with_cwd):
+    bash_tool.bash(conn_with_cwd, "cd /var")
+    out = bash_tool.bash(conn_with_cwd, "pwd")
+    assert out.strip() == "/tmp"  # not /var
+
+
+def test_bash_background_uses_configured_cwd(conn_with_cwd):
+    """Background bash should start at the configured cwd, not at $HOME.
+    Without sourcing the snapshot, background runs at sshd default which
+    silently breaks users who set --cwd."""
+    out = bash_tool.bash(conn_with_cwd, "pwd > /tmp/rmcp-bg-cwd-test.out", run_in_background=True)
+    m = re.search(r"PID:\s*(\d+)", out)
+    assert m, f"no PID in output: {out}"
+    pid = m.group(1)
+
+    # Wait for the background process to finish (it's a quick pwd)
+    for _ in range(50):
+        check = bash_tool.bash(conn_with_cwd, f"kill -0 {pid} 2>/dev/null && echo running || echo done")
+        if "done" in check:
+            break
+        time.sleep(0.1)
+
+    # Read the captured pwd
+    result = bash_tool.bash(conn_with_cwd, "cat /tmp/rmcp-bg-cwd-test.out")
+    assert "/tmp" in result, f"background bash didn't start at configured cwd /tmp, got: {result!r}"
+    bash_tool.bash(conn_with_cwd, "rm -f /tmp/rmcp-bg-cwd-test.out")

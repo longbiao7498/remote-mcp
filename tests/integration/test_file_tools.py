@@ -257,3 +257,80 @@ def test_file_stat_list_input(conn):
     assert "size=1" in lines[0]
     assert "size=2" in lines[1]
     assert lines[2].endswith("exists=false")
+
+
+# ---------------------------------------------------------------------------
+# resolve_path integration tests (B6)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def conn_with_cwd(sshd_container, ssh_key):
+    cfg = HostConfig(
+        name="test",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd=sshd_container["workdir"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    yield c
+    c.close()
+
+
+def test_read_relative_path(conn_with_cwd):
+    # Write a file at <workdir>/hello.txt
+    _write_remote_file(conn_with_cwd,
+                       f"{conn_with_cwd.config.cwd}/hello.txt",
+                       "hi\n")
+    out = read_tool.read(conn_with_cwd, "hello.txt")
+    assert "     1\thi\n" in out
+
+
+def test_read_empty_path_returns_error(conn_with_cwd):
+    out = read_tool.read(conn_with_cwd, "")
+    assert out.startswith("Error: empty path")
+
+
+def test_read_tilde_path_returns_error(conn_with_cwd):
+    out = read_tool.read(conn_with_cwd, "~/foo")
+    assert out.startswith("Error:")
+    assert "~" in out
+
+
+def test_write_relative_path(conn_with_cwd):
+    from remote_mcp.tools import write as write_tool
+    out = write_tool.write(conn_with_cwd, "wrote-here.txt", "x\n")
+    assert "Successfully wrote" in out
+    # Verify the file landed under cwd
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/wrote-here.txt", "r") as f:
+        assert f.read().decode() == "x\n"
+
+
+def test_edit_relative_path(conn_with_cwd):
+    from remote_mcp.tools import edit as edit_tool
+    _write_remote_file(conn_with_cwd,
+                       f"{conn_with_cwd.config.cwd}/to-edit.txt",
+                       "old\n")
+    out = edit_tool.edit(conn_with_cwd, "to-edit.txt", "old", "new")
+    assert "successfully" in out.lower() or "Successfully" in out
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/to-edit.txt", "r") as f:
+        assert f.read().decode() == "new\n"
+
+
+def test_multi_edit_relative_path(conn_with_cwd):
+    from remote_mcp.tools import multi_edit as multi_edit_tool
+    _write_remote_file(conn_with_cwd,
+                       f"{conn_with_cwd.config.cwd}/m.txt",
+                       "a\nb\n")
+    out = multi_edit_tool.multi_edit(conn_with_cwd, "m.txt", [
+        {"old_string": "a", "new_string": "A"},
+        {"old_string": "b", "new_string": "B"},
+    ])
+    assert "Error" not in out
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/m.txt", "r") as f:
+        assert f.read().decode() == "A\nB\n"

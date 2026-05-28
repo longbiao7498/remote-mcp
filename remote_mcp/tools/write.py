@@ -2,6 +2,7 @@
 import posixpath
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def _sftp_mkdirs(sftp, path: str) -> None:
@@ -42,6 +43,11 @@ def write(conn: SSHConnection, file_path: str, content: str) -> str:
         `"Error: <message>"` for other SFTP failures (e.g. target is a
         directory, disk full, invalid path).
     """
+    try:
+        file_path = resolve_path(file_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
+
     sftp = conn.get_sftp()
     parent = posixpath.dirname(file_path)
     encoded = content.encode("utf-8")

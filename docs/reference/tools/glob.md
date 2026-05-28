@@ -22,13 +22,15 @@ Find files matching a glob pattern on the remote host using server-side `find`.
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `pattern` | string | yes | — | Glob pattern to match against (see pattern-conversion rules below). |
-| `path` | string | no | `"."` | Root directory on the remote host where the search starts. |
+| `path` | string | no | `"."` | Root directory on the remote host where the search starts. Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 
 ## Returns
 
 A string. The format depends on outcome:
 
-**On success:** newline-delimited list of matching file paths, sorted (via `sort`). One path per line.
+**On success:** newline-delimited list of matching file paths, sorted (via `sort`). One path per line. Output paths are absolute (e.g., `/opt/app/foo.py`) — they incorporate the resolved search root. To get relative output, run inside a Bash call with `cd <cwd> && find ...`.
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 **No matches:**
 

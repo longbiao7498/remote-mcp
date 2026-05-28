@@ -147,3 +147,25 @@ The known limitation is that the translation is approximate for complex patterns
 **Decision:** Feedback writes to a local JSONL file. It never sends data anywhere.
 
 This is a fundamental privacy stance. The agent may include code snippets in the `details` field. Those snippets belong to the user's project. A telemetry endpoint would mean the user's proprietary code leaving their machine without explicit consent. The local file model means the user owns the data entirely and can choose what, if anything, to share with the maintainer. See [The Feedback loop](./feedback-loop.md) for the fuller rationale.
+
+## Non-persistent Bash (v0.2.0)
+
+**Decision:** Remove the persistent bash session entirely. Each Bash tool call opens a fresh exec channel, runs the command (wrapped with a snapshot `source`), and closes the channel.
+
+**Why:** Three reasons converged. First, alignment with Claude Code native: direct testing showed that CC's own Bash tool resets cwd and env between calls — our persistent model was an unintended deviation that created confusing behavior for agents trained on CC conventions. Second, a class of compounding bugs: the persistent session with PTY caused stdin-reading commands (`srun`, `cat` with no args, REPLs) to hang indefinitely because our persistent PTY meant the remote command never saw EOF. Third, mechanical complexity: the persistent model required the sentinel protocol, a background reader thread to prevent buffer deadlock, PTY allocation for interrupt delivery, `setsid` wrappers for background commands, and a careful init sequence — approximately 350 lines of supporting machinery with non-trivial failure modes.
+
+The non-persistent model reduces this to ~50 lines with no edge cases, while preserving the convenience of "environment is loaded once" via the snapshot mechanism: at connect time, `bash -ic 'declare -p; declare -fp; alias'` captures the bashrc environment and writes it to a remote snapshot file; each Bash call `source`s the snapshot before running.
+
+See [Why non-persistent Bash](./why-non-persistent-bash.md) for the full analysis.
+
+## Configurable cwd (v0.2.0)
+
+**Decision:** Allow a `cwd` to be configured per host at registration time (`--cwd /opt/myapp` or `cwd:` in `config.yaml`). All tools resolve relative paths against this cwd. All tool outputs append `[host=X cwd=Y]` as a suffix.
+
+**Why:** In v0.1.x, every tool required absolute paths — `Read("config.yaml")` failed. Claude Code native works differently: it resolves relative paths from the directory `claude` was launched in. This made remote-mcp feel like a second-class tool and forced agents to track absolute paths mentally. The configured cwd closes the gap: an agent working on `/opt/myapp` registers the server with `--cwd /opt/myapp` and can then use the same relative-path conventions it uses locally.
+
+The cwd is fixed at registration time rather than being agent-controllable for two reasons: it mirrors how CC native works (session cwd does not change), and it avoids the confusion of a parallel stateful `cd` mechanism on top of the already non-persistent Bash model.
+
+The `[host=X cwd=Y]` suffix is placed on all outputs (not just Bash) so the agent always has a ground-truth reminder of where relative paths anchor, regardless of which tool it just called.
+
+See [Configured cwd and path resolution](./cwd-and-path-resolution.md) for the full analysis.

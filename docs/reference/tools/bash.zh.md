@@ -37,20 +37,22 @@
 **成功时（退出码为 0）：**
 
 ```
-[host=<name> cwd=<cwd>]
 <command output>
+
+[host=<name> cwd=<cwd>]
 ```
 
 **成功时（退出码非零）：**
 
 ```
-[host=<name> cwd=<cwd>]
 <command output>
 [Exit code: <N>]
+
+[host=<name> cwd=<cwd>]
 ```
 
 - `<name>` 是配置中的主机名（`conn.config.name` 的值）。
-- `<cwd>` 是命令执行完成后的工作目录，从哨兵行中获取。
+- `<cwd>` 是配置的远程 cwd——在所有调用中保持稳定。
 - 输出中的 `\r\n` 序列归一化为 `\n`；裸 `\r` 字符被去除。
 - 输出上限为 `conn.config.bash_output_cap` 字节（默认 100 KB）。截断时，输出以 `\n... [truncated to <N> bytes]` 结尾。
 
@@ -61,7 +63,6 @@
 后台进程启动后立即返回：
 
 ```
-[host=<name> cwd=<cwd>]
 Started background task.
   PID: <pid>
   Log: <log_path>
@@ -70,6 +71,8 @@ To check status:    Bash("kill -0 <pid> && echo running || echo done")
 To read new output: Read("<log_path>", offset=<last_line+1>)
 To stop gracefully: Bash("kill -TERM -- -<pid>")
 To force stop:      Bash("kill -KILL -- -<pid>")
+
+[host=<name> cwd=<cwd>]
 ```
 
 - `<pid>` 是 `setsid` 产生的 bash 的 PID。由于 `setsid` 会创建一个 PID = PGID 的新进程组，`kill -- -<pid>` 可杀死整个进程树。
@@ -81,24 +84,23 @@ To force stop:      Bash("kill -KILL -- -<pid>")
 | 触发条件 | 返回字符串 |
 |---------|-----------|
 | 前台命令超时 | `Error: Command timed out after <timeout>s on <name>` |
-| 后台启动包装器超时（10 秒内部限制） | `Error: failed to launch background task on <name> (timeout)` |
 | 后台启动未发出 `BG_PID=<n>` | `Error: failed to start background task on <name>. Output: <first 500 chars of output>` |
 
 ## 行为说明
 
-- **持久会话。** 前台调用在 SSH 连接的生命周期内共享单个长期存活的 bash 进程。Shell 状态（当前目录、导出的变量、shell 函数）在各次前台调用之间持久保存。后台调用也通过该会话启动包装器，但后台进程本身是独立的。
-- **后台进程隔离。** 后台命令包装为 `setsid nohup bash -c <cmd> > <log> 2>&1 </dev/null &`。`setsid` 创建新会话，使产生的 bash 成为进程组组长（PID = PGID）。由于持久会话以 `set +m`（禁用作业控制）运行，普通的 `&` 不会创建新进程组；需要 `setsid` 才能使 `kill -- -<pid>` 正确工作。
-- **超时行为（前台）。** 超时时，工具向远程 bash 发送 Ctrl-C（`\x03`），然后返回错误字符串。bash 会话本身保持存活，供后续调用使用。
-- **输出上限（前台）。** 上限在 `\r\n` 归一化之后应用。`[Exit code: N]` 后缀（如有）在上限检查之前追加。
-- **不支持交互式命令。** 需要 PTY 的命令（`vim`、`top`、REPL、带密码提示的 `sudo`）无法工作。bash 会话设有 `TERM=dumb` 且无 PTY。
-- **`description` 参数。** 被接受但忽略。其存在是为了让为 Claude Code 原生 Bash 编写的工具调用无需修改即可使用。
-- **SSH 重连。** 若 SSH 连接在会话中途重建，shell 状态（cwd、env）将被重置。`server.py` 中的调用方会在下一次工具结果前追加一个 `[WARNING]` 描述重连情况。具体警告文本见 [CLAUDE.md](../../../CLAUDE.md)。
+- **非持久 shell**：每次调用都是全新的 `bash --noprofile --norc -c "..."`。`cd`、`export`、`source venv/bin/activate` 在调用之间**不会**保留——如需串联，请在同一行用 `&&` 连接。
+- **快照重放**：远程 `~/.bashrc` 在 SSH 连接建立时加载一次；后续 Bash 调用会 `source` 保存的快照，恢复 PATH、别名、函数和导出的变量。连接建立后对 `~/.bashrc` 的修改在重连之前**不会**生效。
+- **配置的 cwd**：每次 Bash 调用均从配置的 `cwd`（`--cwd /opt/app`，默认为 `$HOME`）开始。快照以 `cd <cwd> || exit 1` 结尾。
+- **无 PTY**：stdin 为 `/dev/null`。`srun`、`cat`（无参数）等需要读取 stdin 的命令不会挂起。不支持交互式工具（`vim`、`top`、REPL）。
+- **超时**：关闭 SSH 通道，向远程命令的会话发送 SIGHUP——终止该命令及其所有子进程。超时前收集到的部分 stdout 会包含在错误输出中。
+- **后台（`run_in_background=true`）**：启动 `setsid nohup bash --noprofile --norc -c "source <snapshot>; ..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`。通过 source 快照使配置的 cwd 和 PATH 生效。返回 PID + 日志路径 + 4 条操作命令。使用 `kill -- -<pid>` 终止整个进程组。
+- **输出**：stdout 与 stderr 合并输出。非零退出时末尾附加 `[Exit code: N]`。上限为 `bash_output_cap`（默认 100 KB）。统一的 `[host=X cwd=Y]` 前缀由 MCP 服务器追加，而非工具本身。
 
 ## 带宽特征
 
 - **前台：** 输出字节通过网络传输一次。大量输出应在服务端通过 `head`/`tail` 过滤。100 KB 上限是安全防护，而非服务端过滤的替代方案。
 - **后台：** 启动时仅 `BG_PID=<n>` 行通过网络传输。后续输出通过 [Read](./read.md) 轮询日志文件——每次轮询仅通过 `offset` 传输所请求的新行。
-- **往返次数：** 前台 = 每次调用一次逻辑往返（基于哨兵）；后台启动 = 一次往返；后续轮询 = 每次通过 Read 一次往返。
+- **往返次数：** 前台 = 每次调用一次逻辑往返（单次 exec_command + 通道读取）；后台启动 = 一次往返；后续轮询 = 每次通过 Read 一次往返。
 
 ## 相关
 

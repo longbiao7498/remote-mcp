@@ -32,7 +32,7 @@ Read multiple remote files in a single SSH round-trip using a composed server-si
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `reads` | array | yes | — | Ordered list of file-read descriptors |
-| `reads[].file_path` | string | yes | — | Absolute path to the file on the remote host |
+| `reads[].file_path` | string | yes | — | Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `reads[].offset` | integer | no | `1` | First line to return (1-based) |
 | `reads[].limit` | integer | no | `2000` | Maximum number of lines to return for this file |
 
@@ -61,6 +61,8 @@ NOT_FOUND
 Line numbers within each section are 1-based and start from the `offset` value for that read entry. The overall output is capped at `read_size_cap` bytes (default 256 KB); if the cap is reached, output is truncated at that byte boundary and `\n... [truncated to <N> bytes]` is appended.
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

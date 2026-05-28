@@ -34,14 +34,14 @@ def test_remote_info_full_config_with_jump():
     assert "jump_host=bastion" in out
 
 
-def test_remote_info_output_is_5_lines():
-    """Output is exactly the 5 documented fields, one per line."""
+def test_remote_info_output_is_6_lines():
+    """Output is exactly the 6 documented fields, one per line (cwd added in v0.2.0)."""
     cfg = HostConfig(name="x", hostname="h", user="u")
     out = remote_info(_FakeConn(cfg))
     lines = [l for l in out.splitlines() if l.strip()]
-    assert len(lines) == 5
+    assert len(lines) == 6
     field_names = {l.split("=", 1)[0] for l in lines}
-    assert field_names == {"host", "user", "hostname", "port", "jump_host"}
+    assert field_names == {"host", "user", "hostname", "port", "jump_host", "cwd"}
 
 
 def test_remote_info_no_ssh_calls_made():
@@ -59,3 +59,31 @@ def test_remote_info_no_ssh_calls_made():
 
     out = remote_info(_NoSSHConn(cfg))
     assert "host=prod" in out
+
+
+def test_remote_info_includes_cwd():
+    from remote_mcp.tools.remote_info import remote_info
+    from types import SimpleNamespace
+    conn = SimpleNamespace(
+        config=SimpleNamespace(
+            name="prod", user="deploy", hostname="prod.example.com",
+            port=22, jump_host="bastion", cwd="/opt/myapp",
+        ),
+    )
+    out = remote_info(conn)
+    assert "cwd=/opt/myapp" in out
+
+
+def test_remote_info_cwd_when_none():
+    # If cwd is somehow None at runtime (shouldn't happen after connect, but
+    # be defensive), show 'unknown' rather than crash
+    from remote_mcp.tools.remote_info import remote_info
+    from types import SimpleNamespace
+    conn = SimpleNamespace(
+        config=SimpleNamespace(
+            name="x", user="u", hostname="h", port=22,
+            jump_host=None, cwd=None,
+        ),
+    )
+    out = remote_info(conn)
+    assert "cwd=unknown" in out

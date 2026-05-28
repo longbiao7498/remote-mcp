@@ -23,8 +23,8 @@ Push a local file to the remote host via SFTP. Binary-safe.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `local_path` | string | yes | — | Absolute path on the LOCAL machine. `~` is expanded. |
-| `remote_path` | string | yes | — | Absolute path on the remote. Overwrites if exists. Parent directories are auto-created via SFTP `mkdir`. |
+| `local_path` | string | yes | — | Absolute LOCAL path or with ~ (expanded via `os.path.expanduser`). NOT subject to the configured remote cwd. |
+| `remote_path` | string | yes | — | Absolute remote path, or relative to the configured cwd (same as Read/Write/etc.). Overwrites if exists. Parent directories are auto-created via SFTP `mkdir`. |
 
 ## Returns
 
@@ -33,6 +33,8 @@ A string.
 **On success:** `Successfully uploaded <N> bytes from <local_path> to <remote_path>` where `<N>` is the byte length of the local file.
 
 **On error:** one of the strings in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

@@ -67,7 +67,6 @@
 | 触发条件 | 返回字符串 |
 |---------|-----------|
 | 前台命令超时 | `Error: Command timed out after <timeout>s on <host>` |
-| 后台启动超时（10 秒内部限制） | `Error: failed to launch background task on <host> (timeout)` |
 | 后台启动成功但输出中未找到 `BG_PID=<n>` | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 
 ### Glob
@@ -119,6 +118,15 @@
 
 RemoteInfo 不会失败——它返回内存中的配置。无错误字符串。
 
+### 路径验证（跨工具）
+
+以下错误由任何接受 `path` 参数的工具在发起远程调用之前返回。
+
+| 触发条件 | 返回字符串 |
+|---------|-----------|
+| `path` 参数为空字符串 | `Error: empty path` |
+| `path` 参数以 `~` 开头 | `Error: path starts with '~' — use an absolute path, or a path relative to the configured cwd` |
+
 ### 服务器 / 分发
 
 | 触发条件 | 返回字符串 |
@@ -126,6 +134,9 @@ RemoteInfo 不会失败——它返回内存中的配置。无错误字符串。
 | `_raw_dispatch` 无法识别工具名称 | `Error: unknown tool: <name>` |
 | SSH 连接断开且重连失败 | `Error: SSH connection to <host> lost and reconnect failed: <reason>` |
 | SSH 连接断开、重连成功，但重试的工具调用抛出异常 | `Error: <exception message>` |
+| 启动时 `--cwd` / `hosts.<name>.cwd` 的值不是绝对路径且不以 `~/` 开头 | `Error: cwd must be an absolute path or start with '~/' (got: '<value>')` |
+| 启动时对配置的 cwd 进行 SFTP stat，提示"不存在" | `configured cwd '<path>' does not exist on host '<host>'` |
+| 启动时对配置的 cwd 进行 SFTP stat，发现目标不是目录 | `configured cwd '<path>' exists on host '<host>' but is not a directory` |
 
 ## 横切说明
 

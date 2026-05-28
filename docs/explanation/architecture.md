@@ -29,11 +29,8 @@ The naive answer — "just SSH into the remote and run commands" — ignores tha
                     ┌───────────────────────────▼──────────────┐
                     │              Remote Linux host            │
                     │                                          │
-                    │   ┌──────────────────────────────────┐   │
-                    │   │  bash --norc (persistent session) │   │
-                    │   └──────────────────────────────────┘   │
                     │   Native filesystem (via SFTP)           │
-                    │   Ephemeral exec channels (Glob, Grep)   │
+                    │   Per-call exec channels (incl. Bash)    │
                     └──────────────────────────────────────────┘
 ```
 
@@ -67,25 +64,27 @@ The channel types and their lifecycles:
 │  ┌──────────────────────────────────────────────────────────┐   │
 │  │  paramiko Transport  (one persistent TCP + SSH session)  │   │
 │  │                                                          │   │
-│  │  ┌────────────────┐  ┌─────────────────┐  ┌──────────┐  │   │
-│  │  │  bash channel  │  │   SFTP client   │  │ exec ×N  │  │   │
-│  │  │  (persistent,  │  │  (lazy-init,    │  │ (short-  │  │   │
-│  │  │  lives with    │  │  reused for all │  │ lived,   │  │   │
-│  │  │  Transport)    │  │  file ops)      │  │ per call)│  │   │
-│  │  └────────────────┘  └─────────────────┘  └──────────┘  │   │
+│  │  ┌─────────────────┐  ┌──────────────────────────────┐  │   │
+│  │  │   SFTP client   │  │ exec ×N  (short-lived,        │  │   │
+│  │  │  (lazy-init,    │  │ per call — Bash, Glob, Grep,  │  │   │
+│  │  │  reused for all │  │ Read, MultiRead, and all       │  │   │
+│  │  │  file ops)      │  │ other command-running tools)  │  │   │
+│  │  └─────────────────┘  └──────────────────────────────┘  │   │
 │  └──────────────────────────────────────────────────────────┘   │
 │                                                                 │
 │  disconnect / reconnect → entire Transport subtree is rebuilt   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### The persistent bash channel
+### Per-call exec channels for Bash (v0.2.0+)
 
-One bash process runs on the remote host for the lifetime of the Transport. It is started with `bash --norc --noprofile` (no startup files, clean state) and initialized with a mandatory sequence that disables job-control notifications, prompt strings, history expansion, and terminal control sequences — all the things that would corrupt the output stream.
+Since v0.2.0, the Bash tool no longer keeps a persistent bash process alive. Each Bash tool call opens a fresh exec channel, runs the command, and closes the channel when done — the same model used by Glob, Grep, Read (sed path), and MultiRead. There is no shared shell state between calls.
 
-This channel is what gives the Bash tool its stateful character: `cd` commands, `export` declarations, and sourced files all persist across tool calls, because they all execute inside the same bash process.
+The convenience of "shell environment is loaded once" is preserved via a **snapshot mechanism**: at connect time, `bash -ic 'declare -p; declare -fp; alias'` captures the bashrc-loaded environment (PATH, aliases, conda init, etc.) and writes it to a snapshot file on the remote host. Each Bash call `source`s the snapshot before running the user's command, so PATH and other startup environment values are available — without paying the bashrc startup cost on every call.
 
-The protocol for knowing when a command is done is non-trivial. See [Design decisions](./design-decisions.md) for the sentinel protocol rationale, and the `bash_session.py` module reference for the exact mechanics.
+The configured `cwd` (set at registration time via `--cwd`) is appended to the snapshot as `cd <cwd>`, so each Bash call begins in the right working directory. See [Configured cwd and path resolution](./cwd-and-path-resolution.md) for how this fits into the broader path-handling model.
+
+Why this change was made is documented in depth in [Why non-persistent Bash](./why-non-persistent-bash.md).
 
 ### The SFTP client
 
@@ -103,11 +102,11 @@ The Read tool's remote `sed` slicing also uses exec channels, as do the multi-fi
 
 Every tool call lands on one of two paths:
 
-**Stateless exec path** (Glob, Grep, Read, MultiRead, Write's mkdir): `SSHConnection.exec(command)` opens a channel, runs the command, returns stdout + stderr + exit code, closes the channel. No shared state, no persistence, no ordering constraints.
+**Exec path** (Bash, Glob, Grep, Read, MultiRead, Write's mkdir): `SSHConnection.exec(command)` opens a channel, runs the command, returns stdout + stderr + exit code, closes the channel. No shared state, no persistence, no ordering constraints. As of v0.2.0, Bash joins this path — it wraps the user command with a snapshot `source` before running it via exec, rather than using a persistent bash channel.
 
-**Stateful bash path** (Bash tool): `conn.get_bash_session().execute(command)` sends the command to the persistent bash process via stdin, waits for the sentinel in the output stream, and returns the collected output. Shell state (cwd, env vars, sourced files) accumulates across calls.
+**SFTP path** (Read full-file, Write, Edit, MultiEdit, MultiRead data, FileStat): operations go through the persistent SFTP channel without opening new exec channels. Binary-safe, no shell escaping required.
 
-This split is load-bearing. A design where everything went through exec would lose shell state. A design where everything went through the bash session would require careful escaping, would be harder to parallelize (the bash channel is a single queue), and would make Glob and Grep semantics more fragile.
+This split is load-bearing. SFTP handles file content reliably regardless of what characters are in the file. Exec handles command execution cleanly without the complexity of a persistent bash session.
 
 ## File operations: SFTP only
 
@@ -135,15 +134,15 @@ See [Bandwidth and latency](./bandwidth-and-latency.md) for the full picture of 
 
 ## Where each tool fits
 
-| Tool | Channel type | Statefulness |
-|------|-------------|--------------|
+| Tool | Channel type | Notes |
+|------|-------------|-------|
 | Read (sed path) | exec | stateless |
 | Write | SFTP (mkdir via exec) | stateless |
 | Edit | SFTP | stateless |
 | MultiEdit | SFTP | stateless |
 | MultiRead | exec (one command) | stateless |
 | FileStat | SFTP stat | stateless |
-| Bash | persistent bash channel | stateful |
+| Bash | exec (snapshot-wrapped) | stateless per-call; snapshot provides env |
 | Glob | exec | stateless |
 | Grep | exec | stateless |
 | Feedback | local file write | local only |

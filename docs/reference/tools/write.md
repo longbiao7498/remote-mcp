@@ -21,7 +21,7 @@ Write text content to a file on the remote host via SFTP, creating parent direct
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to the file on the remote host |
+| `file_path` | string | yes | — | Absolute remote path, or relative to the configured cwd. ~ is NOT supported (use absolute or relative). |
 | `content` | string | yes | — | Text content to write (UTF-8 encoded) |
 
 ## Returns
@@ -31,6 +31,8 @@ A string. The format depends on outcome:
 **On success:** `Successfully wrote <N> characters to <file_path>` where `<N>` is `len(content)` (Unicode character count, not byte count).
 
 **On error:** one of the strings listed in [Error wording](#error-wording).
+
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error). The tool's own output is everything before that suffix.
 
 ## Error wording
 

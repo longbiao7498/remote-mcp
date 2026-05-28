@@ -79,11 +79,12 @@ hosts:
     hostname: your-host.example.com
     user: alice
     key_path: ~/.ssh/id_ed25519
+    cwd: ~/projects/myapp
 
 default_host: myserver
 ```
 
-That is the complete minimal config. Save the file.
+That is the complete minimal config. The `cwd` field sets the working directory all tools use when resolving relative paths — omit it to default to the remote `$HOME`. Save the file.
 
 > **Note on the host label:** `myserver` is the name you choose — it appears in the tool names Claude Code will call (`mcp__remote-myserver__Read`). Use a short, slug-friendly name (letters, digits, hyphens). We use `myserver` throughout this tutorial; substitute your own wherever you see it.
 

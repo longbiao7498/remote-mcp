@@ -27,6 +27,7 @@ Each key under `hosts` is the logical host name (used in `--host` and in `[WARNI
 | `connect_timeout` | float | No | `10.0` | Seconds to wait for the TCP connection to be established. Applied to both jump and target connections. |
 | `keepalive_interval` | integer | No | `30` | Seconds between SSH keepalive packets (`Transport.set_keepalive`). Set to `0` to disable. Prevents idle-timeout disconnections behind NAT/VPN. |
 | `compression` | boolean | No | `true` | Enable SSH transport-level compression. |
+| `cwd` | string \| null | No | null (→ remote `$HOME`) | Remote working directory. Must be `/...` (absolute) or `~` / `~/...`. Validated at connect time (SFTP stat); bad cwd → MCP server fails to start. |
 | `bash_timeout_default` | integer | No | `120` | Default timeout in seconds for Bash tool foreground commands when the caller does not specify `timeout`. |
 | `glob_output_limit` | integer | No | `1000` | Maximum number of file paths returned by the Glob tool before truncation. |
 | `read_size_cap` | integer | No | `262144` | Maximum bytes of output returned by Read and MultiRead before truncation (default 256 KB). |

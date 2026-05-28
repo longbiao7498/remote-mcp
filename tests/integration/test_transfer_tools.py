@@ -124,3 +124,42 @@ def test_download_exceeds_size_cap(conn, tmp_path):
     assert "run_in_background=true" in out
     # Local must NOT have been created
     assert not local.exists()
+
+
+@pytest.fixture
+def conn_with_cwd(sshd_container, ssh_key):
+    cfg = HostConfig(
+        name="test",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd=sshd_container["workdir"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    yield c
+    c.close()
+
+
+def test_upload_relative_remote_path(conn_with_cwd, tmp_path):
+    local = tmp_path / "src.bin"
+    local.write_bytes(b"hello world")
+    from remote_mcp.tools import upload as upload_tool
+    out = upload_tool.upload(conn_with_cwd, str(local), "dest.bin")
+    assert "Successfully uploaded" in out
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/dest.bin", "r") as f:
+        assert f.read() == b"hello world"
+
+
+def test_download_relative_remote_path(conn_with_cwd, tmp_path):
+    # Write a remote file at cwd
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/src.bin", "w") as f:
+        f.write(b"downloaded")
+    local = tmp_path / "dest.bin"
+    from remote_mcp.tools import download as download_tool
+    out = download_tool.download(conn_with_cwd, "src.bin", str(local))
+    assert "Successfully downloaded" in out
+    assert local.read_bytes() == b"downloaded"

@@ -14,6 +14,10 @@ class ExecResult:
     exit_code: int
 
 
+class SSHConnectionError(Exception):
+    """Raised when SSH setup or cwd validation fails fatally."""
+
+
 class SSHConnection:
     def __init__(self, config: HostConfig, jump_config: Optional[HostConfig] = None):
         self.config = config
@@ -23,7 +27,7 @@ class SSHConnection:
         self._sftp: Optional[paramiko.SFTPClient] = None
         self._jump_client: Optional[paramiko.SSHClient] = None
         self._reconnected: bool = False
-        self._bash_session = None
+        self._snapshot_path: Optional[str] = None
 
     def connect(self) -> None:
         """Build the SSH client + Transport. Idempotent: closes any prior."""
@@ -73,14 +77,91 @@ class SSHConnection:
         if self.config.keepalive_interval > 0:
             self._transport.set_keepalive(self.config.keepalive_interval)
 
-    def get_bash_session(self):
-        from .bash_session import BashSession
-        if self._bash_session is None:
-            if self._client is None or self._transport is None:
-                raise RuntimeError("SSHConnection not connected")
-            self._bash_session = BashSession(self._transport, self.config)
-            self._bash_session.start()
-        return self._bash_session
+        # --- v0.2.0: cwd resolution and validation (spec §6.2, §6.4) ---
+        self._resolve_and_validate_cwd()
+
+        self._create_snapshot()
+
+    def _resolve_and_validate_cwd(self) -> None:
+        """Apply ~ expansion + format check + SFTP stat (spec §6.2, §6.4)."""
+        cwd = self.config.cwd if self.config.cwd is not None else "~"
+
+        # Format check: only allow absolute paths, ~, or ~/...
+        if not (cwd == "~" or cwd.startswith("/") or cwd.startswith("~/")):
+            raise SSHConnectionError(
+                f"cwd must be an absolute path or start with '~/' "
+                f"(got: '{cwd}'). Valid: /opt/app, ~/projects/myapp, ~"
+            )
+
+        # ~ expansion
+        if cwd == "~" or cwd.startswith("~/"):
+            home = self._resolve_remote_home()
+            cwd = home if cwd == "~" else home + cwd[1:]
+
+        # Write back so RemoteInfo / suffix / snapshot all see the same value
+        self.config.cwd = cwd
+
+        # SFTP stat — does not depend on remote shell
+        import stat as _stat
+        sftp = self.get_sftp()
+        try:
+            st = sftp.stat(cwd)
+        except IOError:
+            raise SSHConnectionError(
+                f"configured cwd '{cwd}' does not exist on host "
+                f"'{self.config.name}'. Fix the --cwd argument or remove it "
+                f"to use $HOME."
+            )
+        if not _stat.S_ISDIR(st.st_mode or 0):
+            raise SSHConnectionError(
+                f"configured cwd '{cwd}' exists on host "
+                f"'{self.config.name}' but is not a directory."
+            )
+
+    def _resolve_remote_home(self) -> str:
+        """Query remote $HOME via bash -c (per spec §6.2)."""
+        r = self.exec("bash -c 'echo $HOME'", timeout=10.0)
+        home = r.stdout.strip()
+        if not home or not home.startswith("/"):
+            raise SSHConnectionError(
+                f"could not resolve remote $HOME on host "
+                f"'{self.config.name}' (got: {home!r})"
+            )
+        return home
+
+    def _create_snapshot(self) -> None:
+        """Dump shell environment + cd into configured cwd (spec §5.1, §6.5)."""
+        import os
+        import shlex
+        pid = os.getpid()
+        path = f"/tmp/rmcp-snapshot-{self.config.name}-{pid}.sh"
+        self._snapshot_path = path
+
+        # `2>/dev/null` on the inner commands suppresses bashrc-emitted noise
+        # (some users print to stderr in bashrc)
+        cmd = (
+            "bash -ic 'declare -p 2>/dev/null; declare -fp 2>/dev/null; "
+            "alias 2>/dev/null'"
+        )
+
+        try:
+            result = self.exec(cmd, timeout=30.0)
+            content = result.stdout
+            # Append cd <cwd> || exit 1 so every Bash invocation starts at cwd.
+            # cwd is already absolute (resolved in _resolve_and_validate_cwd).
+            if self.config.cwd:
+                content += f"\ncd {shlex.quote(self.config.cwd)} || exit 1\n"
+            sftp = self.get_sftp()
+            with sftp.file(path, "w") as f:
+                f.write(content.encode("utf-8"))
+        except Exception as e:
+            import sys
+            print(
+                f"[remote-mcp] WARNING: snapshot creation failed on "
+                f"{self.config.name}: {e}; Bash will run without snapshot",
+                file=sys.stderr,
+            )
+            self._snapshot_path = None
 
     def exec(self, command: str, timeout: float = 30.0) -> ExecResult:
         """One-shot exec. Opens a new channel, runs cmd, closes."""
@@ -105,11 +186,10 @@ class SSHConnection:
         return flag
 
     def _do_reconnect(self) -> None:
-        """Tear down (if needed) and rebuild. Sets _reconnected=True on success."""
+        """Tear down (if needed) and rebuild. Sets _reconnected=True on success.
+        connect() re-runs _create_snapshot() which overwrites the old file."""
         self.close()
         self.connect()
-        # Note: any persistent BashSession is now invalid; whoever holds it
-        # must re-create. See bash_session integration in Task 2.5.
         self._reconnected = True
 
     def exec_with_retry(self, command: str, timeout: float = 30.0) -> ExecResult:
@@ -127,12 +207,13 @@ class SSHConnection:
             return self.exec(command, timeout=timeout)
 
     def close(self) -> None:
-        if self._bash_session is not None:
+        # Best-effort snapshot cleanup (must happen BEFORE channels close)
+        if self._snapshot_path is not None and self._client is not None:
             try:
-                self._bash_session.close()
+                self.exec(f"rm -f {self._snapshot_path}", timeout=5.0)
             except Exception:
                 pass
-            self._bash_session = None
+            self._snapshot_path = None
         if self._sftp is not None:
             try:
                 self._sftp.close()

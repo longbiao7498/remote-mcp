@@ -67,7 +67,6 @@ Per-path failures are not `"Error: ..."` strings — they are reported inline wi
 | Trigger | Returned string |
 |---------|-----------------|
 | Foreground command exceeds timeout | `Error: Command timed out after <timeout>s on <host>` |
-| Background launch times out (10 s internal limit) | `Error: failed to launch background task on <host> (timeout)` |
 | Background launch succeeds but `BG_PID=<n>` not found in output | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 
 ### Glob
@@ -119,6 +118,15 @@ No-match (exit code 1 or empty stdout) is not an error: `"No matches found"` is 
 
 RemoteInfo cannot fail — it returns the in-memory config. No error strings.
 
+### Path validation (cross-tool)
+
+These errors are returned by any tool that accepts a `path` parameter, before the remote call is made.
+
+| Trigger | Returned string |
+|---------|-----------------|
+| `path` parameter is the empty string | `Error: empty path` |
+| `path` parameter starts with `~` | `Error: path starts with '~' — use an absolute path, or a path relative to the configured cwd` |
+
 ### Server / dispatch
 
 | Trigger | Returned string |
@@ -126,6 +134,9 @@ RemoteInfo cannot fail — it returns the in-memory config. No error strings.
 | Tool name not recognized by `_raw_dispatch` | `Error: unknown tool: <name>` |
 | SSH connection drops and reconnect fails | `Error: SSH connection to <host> lost and reconnect failed: <reason>` |
 | SSH connection drops, reconnect succeeds, but the retried tool call raises an exception | `Error: <exception message>` |
+| Startup-time `--cwd` / `hosts.<name>.cwd` value is not absolute and does not start with `~/` | `Error: cwd must be an absolute path or start with '~/' (got: '<value>')` |
+| Startup-time SFTP stat of configured cwd fails with "not found" | `configured cwd '<path>' does not exist on host '<host>'` |
+| Startup-time SFTP stat of configured cwd finds a non-directory | `configured cwd '<path>' exists on host '<host>' but is not a directory` |
 
 ## Cross-cutting notes
 

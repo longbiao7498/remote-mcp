@@ -43,6 +43,8 @@ Feedback recorded: [<category>] <summary> -> <feedback_path>
 
 **出错时：** 返回[错误措辞](#错误措辞)中列出的字符串之一。错误时不会写入文件。
 
+MCP 服务器会在每次输出（成功和错误）后追加 `\n\n[host=X cwd=Y]`。
+
 ## 错误措辞
 
 | 触发条件 | 返回字符串 |

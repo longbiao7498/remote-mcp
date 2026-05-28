@@ -43,6 +43,8 @@ Feedback recorded: [<category>] <summary> -> <feedback_path>
 
 **On error:** one of the strings listed in [Error wording](#error-wording). Errors do not write to the file.
 
+The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error).
+
 ## Error wording
 
 | Trigger | Returned string |

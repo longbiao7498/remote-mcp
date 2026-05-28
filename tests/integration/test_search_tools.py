@@ -169,3 +169,106 @@ def test_grep_skips_binary_files(grep_conn):
     )
     assert "text_file.txt" in out
     assert "binary_blob" not in out
+
+
+# ---------------------------------------------------------------------------
+# B7: resolve_path integration tests (relative-path support)
+# ---------------------------------------------------------------------------
+
+from remote_mcp.tools import multi_read as multi_read_tool
+from remote_mcp.tools import file_stat as file_stat_tool
+
+
+@pytest.fixture
+def conn_with_cwd(sshd_container, ssh_key):
+    cfg = HostConfig(
+        name="test",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd=sshd_container["workdir"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    yield c
+    c.close()
+
+
+def test_glob_relative_path(conn_with_cwd):
+    # Make a few files at cwd
+    sftp = conn_with_cwd.get_sftp()
+    for name in ("a.py", "b.py", "c.txt"):
+        with sftp.file(f"{conn_with_cwd.config.cwd}/{name}", "w") as f:
+            f.write(b"")
+    out = glob_mod.glob_tool(conn_with_cwd, "*.py", path=".")
+    # Output is absolute paths now (spec §7 breaking change)
+    cwd = conn_with_cwd.config.cwd
+    assert f"{cwd}/a.py" in out
+    assert f"{cwd}/b.py" in out
+    assert f"{cwd}/c.txt" not in out
+
+
+def test_grep_relative_path(conn_with_cwd):
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/findme.txt", "w") as f:
+        f.write(b"needle in haystack\n")
+    out = grep_tool.grep_tool(conn_with_cwd, "needle", path=".")
+    assert "needle" in out
+
+
+def test_multi_read_relative_paths(conn_with_cwd):
+    sftp = conn_with_cwd.get_sftp()
+    for name, body in (("x.txt", "X\n"), ("y.txt", "Y\n")):
+        with sftp.file(f"{conn_with_cwd.config.cwd}/{name}", "w") as f:
+            f.write(body.encode())
+    out = multi_read_tool.multi_read(conn_with_cwd, [
+        {"file_path": "x.txt"},
+        {"file_path": "y.txt"},
+    ])
+    assert "X" in out and "Y" in out
+
+
+def test_file_stat_relative_path(conn_with_cwd):
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/sized.txt", "w") as f:
+        f.write(b"12345")
+    out = file_stat_tool.file_stat(conn_with_cwd, "sized.txt")
+    assert "5" in out  # size 5 bytes
+
+
+def test_file_stat_mixed_resolution_errors(conn_with_cwd):
+    """FileStat resolves paths per-entry: bad paths produce error lines but
+    good paths still report their stats (consistency with MultiRead)."""
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/good.txt", "w") as f:
+        f.write(b"hello")
+    out = file_stat_tool.file_stat(conn_with_cwd, ["good.txt", "~/bad"])
+    # Both should appear in output: good.txt with its size, ~/bad as error
+    assert "good.txt" in out
+    assert "5" in out  # size of "hello"
+    assert "~/bad" in out
+    assert "Error" in out
+
+
+def test_multi_read_preserves_order_with_mixed_errors(conn_with_cwd):
+    """When some reads have path errors, the output chunks must appear in
+    the same order as the input reads list (spec §6.6)."""
+    sftp = conn_with_cwd.get_sftp()
+    with sftp.file(f"{conn_with_cwd.config.cwd}/first.txt", "w") as f:
+        f.write(b"FIRST\n")
+    with sftp.file(f"{conn_with_cwd.config.cwd}/third.txt", "w") as f:
+        f.write(b"THIRD\n")
+    out = multi_read_tool.multi_read(conn_with_cwd, [
+        {"file_path": "first.txt"},
+        {"file_path": "~/bad"},      # path error — should appear in 2nd position
+        {"file_path": "third.txt"},
+    ])
+    # Find positions
+    pos_first = out.find("FIRST")
+    pos_bad = out.find("~/bad")
+    pos_third = out.find("THIRD")
+    assert pos_first < pos_bad < pos_third, (
+        f"Expected first<bad<third order, got first={pos_first}, "
+        f"bad={pos_bad}, third={pos_third}"
+    )

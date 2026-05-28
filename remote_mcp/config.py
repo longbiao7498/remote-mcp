@@ -26,6 +26,7 @@ class HostConfig:
     read_size_cap: int = 256 * 1024
     bash_output_cap: int = 100 * 1024
     transfer_size_cap: int = 100 * 1024 * 1024   # 100 MB cap for Upload/Download
+    cwd: Optional[str] = None                     # remote working dir; None → $HOME
 
 
 @dataclass

@@ -5,7 +5,7 @@
 ## 概要
 
 ```
-python -m remote_mcp --host <name> [--config <path>] [--test]
+python -m remote_mcp --host <name> [--config <path>] [--cwd <path>] [--test]
 ```
 
 ## 参数
@@ -14,7 +14,22 @@ python -m remote_mcp --host <name> [--config <path>] [--test]
 |------|------|--------|------|
 | `--host <name>` | 是 | — | 要连接的逻辑主机名。必须与配置文件中 `hosts` 下的某个键匹配。 |
 | `--config <path>` | 否 | `~/.config/remote-mcp/config.yaml` | YAML 配置文件的路径。`~` 会被展开。 |
+| `--cwd <path>` | 否 | 远程 `$HOME` | 远程工作目录。详见下方 `--cwd` 说明。 |
 | `--test` | 否 | false | 运行冒烟测试而非启动 MCP 服务器（详见下方"模式"说明）。 |
+
+### `--cwd <path>`
+
+远程工作目录。所有工具的相对路径均以此为基准解析。必须以 `/` 开头（绝对路径），或为 `~` / `~/...`（相对于远程用户的 `$HOME`——在连接时展开）。
+
+- 覆盖 `config.yaml` 中 `hosts.<name>.cwd` 的值。
+- 默认值：远程 `$HOME`（等同于 `--cwd ~`）。
+- 配置的 cwd 会出现在每个工具的输出中（形如 `[host=X cwd=Y]`）以及 `RemoteInfo` 中。
+
+示例：
+
+```bash
+python -m remote_mcp --host prod --cwd /opt/myapp
+```
 
 ## 模式
 
