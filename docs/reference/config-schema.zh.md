@@ -33,6 +33,7 @@
 | `read_size_cap` | integer | 否 | `262144` | Read 和 MultiRead 返回的最大字节数（默认 256 KB），超出时截断。 |
 | `bash_output_cap` | integer | 否 | `102400` | Bash 返回的最大字节数（默认 100 KB），超出时截断。 |
 | `transfer_size_cap` | int | 否 | 104857600 (100 MB) | `Upload` 或 `Download` 单文件最大传输字节数。超过会返回 `Error:` 字符串，并附上可直接粘贴的 `Bash + scp` 命令。如确实需要传更大的文件而不想切到 scp，调高此值。 |
+| `op_timeout_default` | integer | 否 | 60 | 应用于所有 SFTP 和 `exec` 通道 I/O 的单次操作空闲超时（秒）。若在此时间内无字节交换，paramiko 将抛出 `socket.timeout`，调用以 SSH 层错误的形式呈现（大多数工具的 `_with_retry` 会触发重连+重试；Edit/MultiEdit/Bash 的 `_with_reconnect_only` 会触发重连，但将错误返回给 agent）。这是空闲超时，而非挂钟上限——持续流式传输字节的大文件传输不会被中止。 |
 
 ## 最简示例
 
