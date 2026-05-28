@@ -22,6 +22,7 @@ def conn(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: server startup calls this; tests must too
     yield c
     c.close()
 
@@ -189,6 +190,7 @@ def conn_with_cwd(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: server startup calls this; tests must too
     yield c
     c.close()
 

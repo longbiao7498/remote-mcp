@@ -18,6 +18,7 @@ def conn(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()
     yield c
     c.close()
 
@@ -50,3 +51,57 @@ def test_snapshot_file_exists_on_remote(conn):
     """The uploaded file is actually on the remote."""
     r = conn.exec(f"test -f {conn._snapshot_path} && echo OK")
     assert r.stdout.strip() == "OK"
+
+
+def test_connect_alone_does_not_capture_snapshot(sshd_container, ssh_key):
+    """After connect(), snapshot must not be captured. Caller is responsible."""
+    cfg = HostConfig(
+        name="nostartup",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()  # alone — no _capture_snapshot call
+    try:
+        assert c._snapshot_content is None
+        assert c._snapshot_path is None
+    finally:
+        c.close()
+
+
+def test_close_does_not_delete_snapshot_file(sshd_container, ssh_key):
+    """close() must leave the remote snapshot file in place (persists in ~/.cache/)."""
+    import paramiko
+    cfg = HostConfig(
+        name="persistent",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    c._capture_snapshot()
+    snap_path = c._snapshot_path
+    c.close()
+    # Verify file still exists via raw paramiko (do NOT use SSHConnection — it
+    # would write a fresh snapshot at the same path if connected with same PID)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        sshd_container["host"],
+        port=sshd_container["port"],
+        username=sshd_container["user"],
+        key_filename=ssh_key["private_path"],
+        timeout=5,
+    )
+    try:
+        stdin, stdout, _ = client.exec_command(
+            f"test -f {snap_path} && echo PRESENT || echo GONE"
+        )
+        out = stdout.read().decode().strip()
+        assert out == "PRESENT", f"snapshot file at {snap_path} was deleted by close()"
+    finally:
+        client.close()

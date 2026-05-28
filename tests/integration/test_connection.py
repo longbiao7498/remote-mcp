@@ -171,6 +171,7 @@ def test_snapshot_created_on_connect(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: caller is responsible, not connect()
     try:
         # Snapshot path should be set — v0.2.2: lives in ~/.cache/remote-mcp/
         pid = os.getpid()
@@ -186,10 +187,10 @@ def test_snapshot_created_on_connect(sshd_container, ssh_key):
         c.close()
 
 
-def test_snapshot_removed_on_close(sshd_container, ssh_key):
-    """After close(), the snapshot file must be gone. Verify with a raw
-    paramiko client (NOT a second SSHConnection, which would create a new
-    snapshot at the same path and defeat the test)."""
+def test_snapshot_persists_after_close(sshd_container, ssh_key):
+    """After close(), the snapshot file must still exist in ~/.cache/.
+    B2: close() no longer deletes the snapshot — it persists across MCP runs.
+    Verify with a raw paramiko client (NOT a second SSHConnection)."""
     from remote_mcp.config import HostConfig
     from remote_mcp.connection import SSHConnection
     import paramiko
@@ -203,10 +204,11 @@ def test_snapshot_removed_on_close(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: caller is responsible, not connect()
     snap_path = c._snapshot_path
     c.close()
 
-    # Verify via raw paramiko (no snapshot side-effects)
+    # Verify file still exists via raw paramiko (no snapshot side-effects)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     client.connect(
@@ -221,7 +223,7 @@ def test_snapshot_removed_on_close(sshd_container, ssh_key):
             f"test -f {snap_path} && echo PRESENT || echo GONE"
         )
         out = stdout.read().decode().strip()
-        assert out == "GONE", f"snapshot still exists at {snap_path}"
+        assert out == "PRESENT", f"snapshot file at {snap_path} was deleted by close()"
     finally:
         client.close()
 
@@ -241,6 +243,7 @@ def test_snapshot_rebuilt_after_reconnect(sshd_container, ssh_key, sshd_kill_and
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: caller is responsible, not connect()
     try:
         path_before = c._snapshot_path
         assert path_before is not None
@@ -391,6 +394,7 @@ def test_snapshot_contains_cd_cwd(sshd_container, ssh_key):
     )
     c = SSHConnection(cfg)
     c.connect()
+    c._capture_snapshot()  # B2: caller is responsible, not connect()
     try:
         r = c.exec(f"tail -3 {c._snapshot_path}")
         assert "cd '/tmp'" in r.stdout or "cd /tmp" in r.stdout

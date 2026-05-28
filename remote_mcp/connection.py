@@ -86,9 +86,6 @@ class SSHConnection:
         # --- v0.2.0: cwd resolution and validation (spec §6.2, §6.4) ---
         self._resolve_and_validate_cwd()
 
-        # v0.2.2 transitional: B1 still calls capture here; B2 removes this.
-        self._capture_snapshot()
-
     def _resolve_and_validate_cwd(self) -> None:
         """Apply ~ expansion + format check + SFTP stat (spec §6.2, §6.4)."""
         cwd = self.config.cwd if self.config.cwd is not None else "~"
@@ -266,13 +263,8 @@ class SSHConnection:
             return self.exec(command, timeout=timeout)
 
     def close(self) -> None:
-        # Best-effort snapshot cleanup (must happen BEFORE channels close)
-        if self._snapshot_path is not None and self._client is not None:
-            try:
-                self.exec(f"rm -f {self._snapshot_path}", timeout=5.0)
-            except Exception:
-                pass
-            self._snapshot_path = None
+        # v0.2.2: snapshot file is NOT deleted here — it lives in ~/.cache/
+        # and persists across MCP runs.
         if self._sftp is not None:
             try:
                 self._sftp.close()

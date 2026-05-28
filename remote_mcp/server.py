@@ -128,6 +128,9 @@ async def main(host_name: str, config_path: str, cwd_override: Optional[str] = N
         jump_cfg = _root_config.hosts[host_cfg.jump_host]
     _conn = SSHConnection(host_cfg, jump_config=jump_cfg)
     _conn.connect()
+    _conn._capture_snapshot()
+    if _conn._snapshot_error is not None:
+        _conn._startup_warning_pending = True
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(
@@ -146,6 +149,9 @@ def _init_for_test(root: RootConfig, host_name: str) -> None:
     jump_cfg = root.hosts.get(host_cfg.jump_host) if host_cfg.jump_host else None
     _conn = SSHConnection(host_cfg, jump_config=jump_cfg)
     _conn.connect()
+    _conn._capture_snapshot()
+    if _conn._snapshot_error is not None:
+        _conn._startup_warning_pending = True
 
 
 def _teardown_for_test() -> None:
