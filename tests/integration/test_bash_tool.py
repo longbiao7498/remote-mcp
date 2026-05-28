@@ -1,3 +1,8 @@
+import socket
+import threading
+import time as time_module
+
+import paramiko
 import pytest
 
 from remote_mcp.config import HostConfig
@@ -219,3 +224,61 @@ def test_bash_background_uses_configured_cwd(conn_with_cwd):
     result = bash_tool.bash(conn_with_cwd, "cat /tmp/rmcp-bg-cwd-test.out")
     assert "/tmp" in result, f"background bash didn't start at configured cwd /tmp, got: {result!r}"
     bash_tool.bash(conn_with_cwd, "rm -f /tmp/rmcp-bg-cwd-test.out")
+
+
+def test_bash_foreground_surfaces_channel_death_promptly(conn, sshd_kill_and_restart):
+    """v0.2.1 fix: when the transport dies mid-call, bash must surface that
+    clearly (not return an opaque "[Exit code: -1]" that hides the cause).
+
+    Behavior verified:
+    - Returns within a couple seconds (no waiting out bash_timeout_default)
+    - Return value starts with "Error: SSH channel to <host> closed unexpectedly"
+      so the agent can distinguish channel death from a real command failure
+    - Does NOT auto-retry (re-running non-idempotent commands silently would
+      be worse than surfacing the failure — agent decides what to do)
+    """
+    # `conn` fixture has bash_timeout_default=15. Call must finish well before.
+    result_box: dict = {}
+
+    def run():
+        result_box["ret"] = bash_tool.bash(conn, "sleep 30", timeout=15)
+
+    t = threading.Thread(target=run)
+    start = time_module.monotonic()
+    t.start()
+    time_module.sleep(1.0)  # let exec_command + drain loop establish
+    sshd_kill_and_restart(conn)  # kill the transport
+    t.join(timeout=14.0)
+    elapsed = time_module.monotonic() - start
+
+    assert not t.is_alive(), (
+        f"bash() hung past socket kill (>{elapsed:.1f}s) — channel-death "
+        f"was not surfaced"
+    )
+    assert elapsed < 8.0, (
+        f"bash() took {elapsed:.2f}s to react to socket death — should "
+        f"react within a couple seconds"
+    )
+
+    ret = result_box.get("ret", "")
+    assert ret.startswith("Error: SSH channel to test closed unexpectedly"), (
+        f"expected explicit channel-death error, got: {ret!r}"
+    )
+
+    if "ret" in result_box:
+        # Function returned a string rather than raising. Acceptable IF it's
+        # not the misleading "Command timed out" (which would mean the bug
+        # is unfixed). The function may also return cleanly if the channel
+        # happened to deliver an exit status before the kill took effect.
+        ret = result_box["ret"]
+        assert "Command timed out" not in ret, (
+            f"bash returned timeout error instead of propagating channel "
+            f"death — drain loop is still swallowing recv exceptions. "
+            f"Got: {ret!r}"
+        )
+    else:
+        # Exception path — the fix surfaces the channel death
+        assert "exc_type" in result_box, (
+            f"thread finished but neither returned nor raised an "
+            f"expected exception: {result_box!r}"
+        )

@@ -1,6 +1,7 @@
 """Bash tool. See spec §5 (v0.2.0 non-persistent model)."""
 import re
 import shlex
+import socket
 import time
 import uuid
 
@@ -78,14 +79,17 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
             if data:
                 out_chunks.append(data)
                 continue
-        except Exception:
-            pass  # timeout on recv — fall through to stderr
+        except socket.timeout:
+            pass  # poll timeout from channel.settimeout — fall through to stderr
+        # Don't catch broader exceptions: socket.error / EOFError / SSHException
+        # from a dead channel must propagate so server.py's _with_retry can
+        # trigger reconnect.
         try:
             data = channel.recv_stderr(4096)
             if data:
                 out_chunks.append(data)
-        except Exception:
-            pass  # timeout on recv_stderr — loop continues
+        except socket.timeout:
+            pass  # poll timeout — loop continues
 
     if timed_out:
         # Drain whatever's left, then close
@@ -124,6 +128,20 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
         channel.close()
     except Exception:
         pass
+
+    # exit_code == -1 means paramiko received EOF without an exit status —
+    # the channel was closed unexpectedly (transport died mid-command, e.g.
+    # laptop suspend, network drop). Surface this explicitly instead of the
+    # opaque "[Exit code: -1]"; agent can decide whether re-running the
+    # command is safe (non-idempotent commands shouldn't be auto-retried,
+    # which is why we don't raise to trigger _with_retry).
+    if exit_code == -1 and not output:
+        return (
+            f"Error: SSH channel to {conn.config.name} closed unexpectedly "
+            f"during command (transport likely disconnected; partial output: "
+            f"none). The next tool call will trigger reconnect. Re-run this "
+            f"command only if it is safe to repeat."
+        )
 
     if exit_code != 0:
         output = output + f"\n[Exit code: {exit_code}]" if output \

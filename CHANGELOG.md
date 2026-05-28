@@ -6,6 +6,12 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-05-28
+
+### Fixed
+- **Bash channel-death now surfaces clearly** instead of returning opaque `[Exit code: -1]`. When the SSH transport dies mid-call (e.g. laptop suspend, network drop), `Bash` now returns `Error: SSH channel to <host> closed unexpectedly during command (transport likely disconnected ...). The next tool call will trigger reconnect. Re-run this command only if it is safe to repeat.` The next tool call triggers normal `_with_retry` reconnect. We deliberately do NOT auto-retry the failed command — agent decides whether re-running is safe (non-idempotent commands like `rm`, `migrate`, etc. shouldn't be silently re-run).
+- **Drain loop exception scope tightened**: `_bash_foreground` polling loop now catches only `socket.timeout` (the expected `channel.settimeout` poll signal) rather than blanket `Exception`. Defensive: prevents future paramiko-version changes from accidentally hiding `socket.error` / `EOFError` / `SSHException` from a dead channel.
+
 ## [0.2.0] — 2026-05-27
 
 ### BREAKING CHANGES

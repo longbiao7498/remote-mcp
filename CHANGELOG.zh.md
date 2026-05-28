@@ -6,6 +6,12 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)；版本遵循
 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.2.1] — 2026-05-28
+
+### 修复
+- **Bash 通道死亡现在能明确暴露**，不再返回模糊的 `[Exit code: -1]`。当 SSH transport 在命令执行中途断开（如笔记本休眠、网络抖动），`Bash` 现在返回 `Error: SSH channel to <host> closed unexpectedly during command (transport likely disconnected ...). The next tool call will trigger reconnect. Re-run this command only if it is safe to repeat.`。下一次工具调用会触发正常的 `_with_retry` 重连机制。**故意不自动重跑**该命令——是否重跑由 agent 判断（`rm`、`migrate` 等非幂等命令静默重跑会有害）。
+- **Drain 循环异常范围收窄**：`_bash_foreground` 轮询循环现在只 catch `socket.timeout`（`channel.settimeout` 的正常轮询信号），而非笼统的 `Exception`。防御性改动：避免未来 paramiko 版本变化时意外吞掉 dead channel 抛出的 `socket.error` / `EOFError` / `SSHException`。
+
 ## [0.2.0] — 2026-05-27
 
 ### 破坏性变更
