@@ -93,7 +93,7 @@ To force stop:      Bash("kill -KILL -- -<pid>")
 - **Configured cwd**: each Bash invocation starts at the configured `cwd` (`--cwd /opt/app`, default `$HOME`). The snapshot ends with `cd <cwd> || exit 1`.
 - **No PTY**: stdin is `/dev/null`. `srun`, `cat` (no args), and other stdin-readers don't hang. Interactive tools (`vim`, `top`, REPLs) are NOT supported.
 - **Timeout**: closes the SSH channel, which sends SIGHUP to the remote command's session — kills the command and all its children. Partial stdout collected before timeout is included in the error output.
-- **Background (`run_in_background=true`)**: launches `setsid nohup bash --noprofile --norc -c "source <snapshot>; ..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`. Sources the snapshot so the configured cwd and PATH are in effect. Returns PID + log path + 4 manipulation commands. Use `kill -- -<pid>` to kill the whole process group.
+- **Background (`run_in_background=true`)**: launches `setsid nohup bash --noprofile --norc -c "source <snapshot>; ..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`. Sources the snapshot so the configured cwd and PATH are in effect. Returns PID + log path + 4 manipulation commands. Use `kill -- -<pid>` to kill the whole process group. If the launch response is lost due to network failure, the remote process may still be running. Recover its PID via `Bash("cat /tmp/rmcp-bg-*.pid")` — the pidfile is written by remote shell before the echo that could be lost, sharing the same `<uuid>` as the log file.
 - **Output**: combined stdout + stderr. Trailing `[Exit code: N]` line on non-zero exits. Capped at `bash_output_cap` (default 100 KB). The unified `[host=X cwd=Y]` suffix is appended by the MCP server, not the tool.
 
 ## Bandwidth/latency profile

@@ -93,7 +93,7 @@ To force stop:      Bash("kill -KILL -- -<pid>")
 - **配置的 cwd**：每次 Bash 调用均从配置的 `cwd`（`--cwd /opt/app`，默认为 `$HOME`）开始。快照以 `cd <cwd> || exit 1` 结尾。
 - **无 PTY**：stdin 为 `/dev/null`。`srun`、`cat`（无参数）等需要读取 stdin 的命令不会挂起。不支持交互式工具（`vim`、`top`、REPL）。
 - **超时**：关闭 SSH 通道，向远程命令的会话发送 SIGHUP——终止该命令及其所有子进程。超时前收集到的部分 stdout 会包含在错误输出中。
-- **后台（`run_in_background=true`）**：启动 `setsid nohup bash --noprofile --norc -c "source <snapshot>; ..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`。通过 source 快照使配置的 cwd 和 PATH 生效。返回 PID + 日志路径 + 4 条操作命令。使用 `kill -- -<pid>` 终止整个进程组。
+- **后台（`run_in_background=true`）**：启动 `setsid nohup bash --noprofile --norc -c "source <snapshot>; ..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`。通过 source 快照使配置的 cwd 和 PATH 生效。返回 PID + 日志路径 + 4 条操作命令。使用 `kill -- -<pid>` 终止整个进程组。若因网络故障导致启动响应丢失，远程进程可能仍在运行。可通过 `Bash("cat /tmp/rmcp-bg-*.pid")` 恢复其 PID——pidfile 由远程 shell 在可能丢失的 echo 之前写入，与日志文件共用同一 `<uuid>`。
 - **输出**：stdout 与 stderr 合并输出。非零退出时末尾附加 `[Exit code: N]`。上限为 `bash_output_cap`（默认 100 KB）。统一的 `[host=X cwd=Y]` 前缀由 MCP 服务器追加，而非工具本身。
 
 ## 带宽特征

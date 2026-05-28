@@ -53,6 +53,7 @@ The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error).
 - **`replace_all=true`:** all occurrences are replaced in a single `str.replace()` call. The zero-match case still returns an error.
 - On any error (file not found, zero matches, ambiguous match), **the file is not written**. No partial state is possible from an error path.
 - Edit is not protected against concurrent writers. Only one agent operating on a file at a time is safe.
+- **Network failures are not auto-retried.** v0.2.2: if SSH dies mid-Edit, the agent receives `Error: <ExceptionType>: <message>` and the next tool call triggers reconnect. Edit is NOT auto-retried because read-modify-write semantics make it unsafe — re-execution would see the already-modified file and falsely report `old_string not found`. Agent should `Read` the file first to verify whether the first attempt succeeded.
 - For multiple replacements in the same file, [MultiEdit](./multi-edit.md) reads and writes the file once rather than once per replacement.
 - The file must be valid UTF-8. Binary files are not supported.
 

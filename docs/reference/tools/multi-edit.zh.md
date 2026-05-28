@@ -66,6 +66,7 @@ MCP 服务器会在每次输出（成功和错误）后追加 `\n\n[host=X cwd=Y
 - 错误消息中的编辑索引从 1 开始（`edit #1`、`edit #2`……）。
 - 文件必须是有效的 UTF-8 编码。不支持二进制文件。
 - MultiEdit 不防范并发写入。
+- **网络故障不会自动重试。** v0.2.2：若 SSH 在 MultiEdit 执行过程中断开，agent 将收到 `Error: <ExceptionType>: <message>`，下一次工具调用会触发重连。MultiEdit **不会**自动重试，因为读-改-写的语义使其不安全——重新执行会看到已被修改的文件，并错误地报告 `old_string not found`。Agent 应先通过 `Read` 读取文件，确认首次操作是否已成功。
 
 ## 带宽特征
 

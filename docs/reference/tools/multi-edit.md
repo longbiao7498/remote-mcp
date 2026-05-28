@@ -66,6 +66,7 @@ The MCP server appends `\n\n[host=X cwd=Y]` to every output (success and error).
 - Edit indices in error messages are 1-based (`edit #1`, `edit #2`, …).
 - The file must be valid UTF-8. Binary files are not supported.
 - MultiEdit is not protected against concurrent writers.
+- **Network failures are not auto-retried.** v0.2.2: if SSH dies mid-MultiEdit, the agent receives `Error: <ExceptionType>: <message>` and the next tool call triggers reconnect. MultiEdit is NOT auto-retried because read-modify-write semantics make it unsafe — re-execution would see the already-modified file and falsely report `old_string not found`. Agent should `Read` the file first to verify whether the first attempt succeeded.
 
 ## Bandwidth/latency profile
 
