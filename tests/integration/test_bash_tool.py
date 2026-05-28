@@ -23,15 +23,25 @@ def conn(sshd_container, ssh_key):
 
 def test_bash_foreground_echo(conn):
     out = bash_tool.bash(conn, "echo hi")
-    assert "[host=test cwd=" in out
-    assert "hi" in out
+    # No prefix anymore — suffix is added by server.py (Stage C)
+    assert out.strip() == "hi"
 
 
-def test_bash_foreground_persists_cwd(conn):
+def test_bash_foreground_does_not_persist_cwd(conn):
+    # cd inside one call must not affect the next call (spec §5.2)
+    pwd_before = bash_tool.bash(conn, "pwd").strip().splitlines()[-1]
     bash_tool.bash(conn, "cd /tmp")
-    out = bash_tool.bash(conn, "pwd")
-    assert "cwd=/tmp" in out
-    assert "/tmp" in out
+    pwd_after = bash_tool.bash(conn, "pwd").strip().splitlines()[-1]
+    assert pwd_after == pwd_before, (
+        f"cwd persisted: before={pwd_before!r}, after={pwd_after!r}"
+    )
+
+
+def test_bash_foreground_does_not_persist_env(conn):
+    bash_tool.bash(conn, "export RMCP_TEST_VAR=hello")
+    out = bash_tool.bash(conn, "echo \"VAR=$RMCP_TEST_VAR\"")
+    assert "VAR=" in out
+    assert "VAR=hello" not in out  # var should be empty
 
 
 def test_bash_foreground_nonzero_exit(conn):
@@ -85,8 +95,7 @@ def test_bash_background_kill_via_process_group(conn):
 
 
 def _parse_last_int(bash_output: str) -> int:
-    """Extract the last integer from bash tool output (skipping the [host=...] prefix line)."""
-    # bash tool output always starts with '[host=... cwd=...]\n'; skip it
+    """Extract the last integer from bash tool output."""
     lines = bash_output.splitlines()
     for line in reversed(lines):
         line = line.strip()
