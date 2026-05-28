@@ -8,6 +8,7 @@ import os
 import stat as _stat
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def download(conn: SSHConnection, remote_path: str, local_path: str) -> str:
@@ -47,6 +48,11 @@ def download(conn: SSHConnection, remote_path: str, local_path: str) -> str:
     local_parent = os.path.dirname(local) or "."
     if not os.path.isdir(local_parent):
         return f"Error: Local parent directory not found: {local_parent}"
+
+    try:
+        remote_path = resolve_path(remote_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
 
     sftp = conn.get_sftp()
     # Stat remote to check existence, type, and size before transfer.

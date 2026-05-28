@@ -13,22 +13,15 @@ def remote_info(conn) -> str:
     """
     Return a structured summary of the connection's configured identity.
 
-    Args:
-        conn: established SSHConnection (only conn.config is accessed).
-
-    Returns:
-        5 lines, one per field, in key=value format:
-            host=<config-key>
-            user=<config-user>
-            hostname=<config-hostname>
-            port=<config-port>
-            jump_host=<config-jump-host or "none">
+    Adds `cwd=<value>` (v0.2.0) showing the configured remote working dir.
     """
     c = conn.config
+    cwd_val = c.cwd if c.cwd else "unknown"
     return (
         f"host={c.name}\n"
         f"user={c.user}\n"
         f"hostname={c.hostname}\n"
         f"port={c.port}\n"
         f"jump_host={c.jump_host or 'none'}\n"
+        f"cwd={cwd_val}\n"
     )
