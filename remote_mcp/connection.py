@@ -28,6 +28,12 @@ class SSHConnection:
         self._jump_client: Optional[paramiko.SSHClient] = None
         self._reconnected: bool = False
         self._snapshot_path: Optional[str] = None
+        # v0.2.2 snapshot fields
+        self._snapshot_content: Optional[bytes] = None
+        self._snapshot_error: Optional[str] = None
+        self._remote_home: Optional[str] = None
+        self._snapshot_reuploaded: bool = False
+        self._startup_warning_pending: bool = False
 
     def connect(self) -> None:
         """Build the SSH client + Transport. Idempotent: closes any prior."""
@@ -80,7 +86,8 @@ class SSHConnection:
         # --- v0.2.0: cwd resolution and validation (spec §6.2, §6.4) ---
         self._resolve_and_validate_cwd()
 
-        self._create_snapshot()
+        # v0.2.2 transitional: B1 still calls capture here; B2 removes this.
+        self._capture_snapshot()
 
     def _resolve_and_validate_cwd(self) -> None:
         """Apply ~ expansion + format check + SFTP stat (spec §6.2, §6.4)."""
@@ -119,7 +126,9 @@ class SSHConnection:
             )
 
     def _resolve_remote_home(self) -> str:
-        """Query remote $HOME via bash -c (per spec §6.2)."""
+        """Query remote $HOME via bash -c (per spec §6.2). Cached after first call."""
+        if self._remote_home is not None:
+            return self._remote_home
         r = self.exec("bash -c 'echo $HOME'", timeout=10.0)
         home = r.stdout.strip()
         if not home or not home.startswith("/"):
@@ -127,41 +136,83 @@ class SSHConnection:
                 f"could not resolve remote $HOME on host "
                 f"'{self.config.name}' (got: {home!r})"
             )
+        self._remote_home = home
         return home
 
-    def _create_snapshot(self) -> None:
-        """Dump shell environment + cd into configured cwd (spec §5.1, §6.5)."""
-        import os
+    def _capture_snapshot(self) -> None:
+        """Run bash -ic once, cache content locally, upload to remote ~/.cache/.
+
+        Called once at MCP server startup (from server.main). NOT called by
+        connect() — reconnect doesn't recapture; see _do_reconnect for re-upload
+        logic when the remote file is found missing.
+        """
         import shlex
-        pid = os.getpid()
-        path = f"/tmp/rmcp-snapshot-{self.config.name}-{pid}.sh"
-        self._snapshot_path = path
-
-        # `2>/dev/null` on the inner commands suppresses bashrc-emitted noise
-        # (some users print to stderr in bashrc)
-        cmd = (
-            "bash -ic 'declare -p 2>/dev/null; declare -fp 2>/dev/null; "
-            "alias 2>/dev/null'"
-        )
-
+        self._snapshot_error = None
+        self._snapshot_content = None
+        self._snapshot_path = None
         try:
+            # Ensure _remote_home is populated — needed by _upload_snapshot_to_remote.
+            # _resolve_and_validate_cwd only calls _resolve_remote_home when cwd
+            # contains ~; for absolute cwd (e.g. /tmp) it is not called, so we
+            # do it explicitly here.
+            self._resolve_remote_home()
+            cmd = (
+                "bash -ic 'declare -p 2>/dev/null; declare -fp 2>/dev/null; "
+                "alias 2>/dev/null'"
+            )
             result = self.exec(cmd, timeout=30.0)
             content = result.stdout
-            # Append cd <cwd> || exit 1 so every Bash invocation starts at cwd.
-            # cwd is already absolute (resolved in _resolve_and_validate_cwd).
             if self.config.cwd:
                 content += f"\ncd {shlex.quote(self.config.cwd)} || exit 1\n"
-            sftp = self.get_sftp()
-            with sftp.file(path, "w") as f:
-                f.write(content.encode("utf-8"))
+            self._snapshot_content = content.encode("utf-8")
         except Exception as e:
-            import sys
-            print(
-                f"[remote-mcp] WARNING: snapshot creation failed on "
-                f"{self.config.name}: {e}; Bash will run without snapshot",
-                file=sys.stderr,
-            )
+            self._snapshot_error = f"snapshot capture failed: {e}"
+            return
+        self._upload_snapshot_to_remote()
+
+    def _upload_snapshot_to_remote(self) -> None:
+        """Upload cached content to remote ~/.cache/remote-mcp/snapshot-<pid>.sh.
+
+        Idempotent: always overwrites. Creates ~/.cache/remote-mcp/ via SFTP
+        mkdir -p semantics if missing. On any failure (mkdir, write, permission,
+        disk full) sets _snapshot_error and clears _snapshot_path.
+        """
+        if self._snapshot_content is None:
+            return
+        if self._remote_home is None:
+            self._snapshot_error = "snapshot upload failed: remote home unresolved"
             self._snapshot_path = None
+            return
+        import os
+        cache_dir = f"{self._remote_home}/.cache/remote-mcp"
+        pid = os.getpid()
+        path = f"{cache_dir}/snapshot-{pid}.sh"
+        try:
+            sftp = self.get_sftp()
+            from .tools.write import _sftp_mkdirs
+            _sftp_mkdirs(sftp, cache_dir)
+            with sftp.file(path, "w") as f:
+                f.write(self._snapshot_content)
+            self._snapshot_path = path
+            self._snapshot_error = None
+        except Exception as e:
+            self._snapshot_error = f"snapshot upload failed: {e}"
+            self._snapshot_path = None
+
+    def _snapshot_exists_on_remote(self) -> bool:
+        """Check whether the remote snapshot file is still present.
+
+        Single SFTP stat call. Returns False on IOError (paramiko raises
+        IOError for missing files).
+        """
+        if self._snapshot_path is None:
+            return False
+        try:
+            sftp = self.get_sftp()
+            sftp.stat(self._snapshot_path)
+            return True
+        except IOError:
+            return False
 
     def exec(self, command: str, timeout: Optional[float] = None) -> ExecResult:
         """One-shot exec. Opens a new channel, runs cmd, closes.
@@ -195,7 +246,7 @@ class SSHConnection:
 
     def _do_reconnect(self) -> None:
         """Tear down (if needed) and rebuild. Sets _reconnected=True on success.
-        connect() re-runs _create_snapshot() which overwrites the old file."""
+        connect() re-runs _capture_snapshot() (transitional) which overwrites the file."""
         self.close()
         self.connect()
         self._reconnected = True

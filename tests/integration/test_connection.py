@@ -159,6 +159,7 @@ def test_exec_with_retry_recovers_after_disconnect(host_config, sshd_kill_and_re
 
 
 def test_snapshot_created_on_connect(sshd_container, ssh_key):
+    import os
     from remote_mcp.config import HostConfig
     from remote_mcp.connection import SSHConnection
     cfg = HostConfig(
@@ -171,10 +172,10 @@ def test_snapshot_created_on_connect(sshd_container, ssh_key):
     c = SSHConnection(cfg)
     c.connect()
     try:
-        # Snapshot path should be set
+        # Snapshot path should be set — v0.2.2: lives in ~/.cache/remote-mcp/
+        pid = os.getpid()
         assert c._snapshot_path is not None
-        assert c._snapshot_path.startswith("/tmp/rmcp-snapshot-snaptest-")
-        assert c._snapshot_path.endswith(".sh")
+        assert c._snapshot_path.endswith(f"/.cache/remote-mcp/snapshot-{pid}.sh")
         # File should exist on remote
         r = c.exec(f"test -f {c._snapshot_path} && echo OK")
         assert r.stdout.strip() == "OK"
