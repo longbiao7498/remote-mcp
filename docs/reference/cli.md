@@ -5,7 +5,7 @@
 ## Synopsis
 
 ```
-python -m remote_mcp --host <name> [--config <path>] [--test]
+python -m remote_mcp --host <name> [--config <path>] [--cwd <path>] [--test]
 ```
 
 ## Arguments
@@ -14,7 +14,22 @@ python -m remote_mcp --host <name> [--config <path>] [--test]
 |------|----------|---------|-------------|
 | `--host <name>` | Yes | — | Logical host name to connect to. Must match a key under `hosts` in the config file. |
 | `--config <path>` | No | `~/.config/remote-mcp/config.yaml` | Path to the YAML configuration file. `~` is expanded. |
+| `--cwd <path>` | No | remote `$HOME` | Remote working directory. See `--cwd` section below. |
 | `--test` | No | false | Run a smoke test instead of starting the MCP server (see Modes below). |
+
+### `--cwd <path>`
+
+Remote working directory. All tool relative paths resolve against this anchor. Must start with `/` (absolute), or be `~` / `~/...` (relative to remote user's `$HOME` — expanded at connect time).
+
+- Overrides `hosts.<name>.cwd` from `config.yaml`.
+- Default: remote `$HOME` (acts as `--cwd ~`).
+- The configured cwd appears in every tool's output as `[host=X cwd=Y]` and in `RemoteInfo`.
+
+Example:
+
+```bash
+python -m remote_mcp --host prod --cwd /opt/myapp
+```
 
 ## Modes
 

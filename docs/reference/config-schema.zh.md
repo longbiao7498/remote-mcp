@@ -27,6 +27,7 @@
 | `connect_timeout` | float | 否 | `10.0` | 等待 TCP 连接建立的超时秒数。同时作用于跳板和目标连接。 |
 | `keepalive_interval` | integer | 否 | `30` | SSH keepalive 包之间的间隔秒数（`Transport.set_keepalive`）。设为 `0` 可禁用。用于防止 NAT/VPN 因空闲超时断开连接。 |
 | `compression` | boolean | 否 | `true` | 启用 SSH 传输层压缩。 |
+| `cwd` | string \| null | 否 | null（→ 远程 `$HOME`） | 远程工作目录。必须为 `/...`（绝对路径）或 `~` / `~/...`。在连接时通过 SFTP stat 验证；cwd 无效会导致 MCP 服务器启动失败。 |
 | `bash_timeout_default` | integer | 否 | `120` | Bash 工具前台命令在调用方未指定 `timeout` 时的默认超时秒数。 |
 | `glob_output_limit` | integer | 否 | `1000` | Glob 工具在截断前返回的最大文件路径数。 |
 | `read_size_cap` | integer | 否 | `262144` | Read 和 MultiRead 返回的最大字节数（默认 256 KB），超出时截断。 |

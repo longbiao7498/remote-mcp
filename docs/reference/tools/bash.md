@@ -86,13 +86,13 @@ To force stop:      Bash("kill -KILL -- -<pid>")
 
 ## Behavior notes
 
-- **Persistent session.** Foreground calls share a single long-lived bash process for the lifetime of the SSH connection. Shell state (current directory, exported variables, shell functions) persists across foreground calls. Background calls also use the session to launch the wrapper, but the background process itself is detached.
-- **Background process isolation.** The background command is wrapped in `setsid nohup bash -c <cmd> > <log> 2>&1 </dev/null &`. `setsid` creates a new session, making the spawned bash the process group leader (PID = PGID). Because the persistent session runs with `set +m` (job control disabled), a plain `&` would not create a new process group; `setsid` is required for `kill -- -<pid>` to work correctly.
-- **Timeout behavior (foreground).** On timeout, the tool sends Ctrl-C (`\x03`) to the remote bash, then returns the error string. The bash session itself remains alive for subsequent calls.
-- **Output cap (foreground).** The cap is applied after `\r\n` normalization. The `[Exit code: N]` suffix (if any) is appended before the cap check.
-- **No interactive commands.** Commands requiring a TTY (`vim`, `top`, REPLs, `sudo` with password prompt) do not work. The bash session has `TERM=dumb` and no PTY.
-- **`description` parameter.** Accepted and ignored. It exists so tool calls written for Claude Code's native Bash work without modification.
-- **SSH reconnect.** If the SSH connection is rebuilt mid-session, shell state (cwd, env) is reset. The caller in `server.py` prefixes the next tool result with a `[WARNING]` describing the reconnect. See [CLAUDE.md](../../../CLAUDE.md) for the exact warning text.
+- **Non-persistent shell**: each call is a fresh `bash --noprofile --norc -c "..."`. `cd`, `export`, `source venv/bin/activate` do NOT survive across calls — chain inline with `&&` if needed.
+- **Snapshot replay**: the remote `~/.bashrc` is loaded once at SSH connect time; subsequent Bash calls `source` the dumped snapshot, restoring PATH, aliases, functions, exported vars. Updates to `~/.bashrc` made after connect do NOT take effect until reconnect.
+- **Configured cwd**: each Bash invocation starts at the configured `cwd` (`--cwd /opt/app`, default `$HOME`). The snapshot ends with `cd <cwd> || exit 1`.
+- **No PTY**: stdin is `/dev/null`. `srun`, `cat` (no args), and other stdin-readers don't hang. Interactive tools (`vim`, `top`, REPLs) are NOT supported.
+- **Timeout**: closes the SSH channel, which sends SIGHUP to the remote command's session — kills the command and all its children. Partial stdout collected before timeout is included in the error output.
+- **Background (`run_in_background=true`)**: launches `setsid nohup bash -c "..." > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`. Returns PID + log path + 4 manipulation commands. Use `kill -- -<pid>` to kill the whole process group.
+- **Output**: combined stdout + stderr. Trailing `[Exit code: N]` line on non-zero exits. Capped at `bash_output_cap` (default 100 KB). The unified `[host=X cwd=Y]` suffix is appended by the MCP server, not the tool.
 
 ## Bandwidth/latency profile
 
