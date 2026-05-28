@@ -149,12 +149,11 @@ def test_bash_background_kills_children_via_group(conn):
     assert n_after == 0, f"Expected 0 processes in group after kill, got {n_after}: {pg_after}"
 
 
-def test_bash_background_does_not_create_bash_session(conn):
-    # Touching bash() in background mode should NOT initialize the persistent
-    # BashSession (we don't have one in v0.2.0).
-    assert conn._bash_session is None
+def test_bash_background_does_not_use_persistent_session(conn):
+    # No persistent state — the connection has no _bash_session attr at all.
+    assert not hasattr(conn, "_bash_session")
     bash_tool.bash(conn, "sleep 1", run_in_background=True)
-    assert conn._bash_session is None  # still None — no session ever created
+    assert not hasattr(conn, "_bash_session")
 
 
 def test_bash_background_log_readable(conn):

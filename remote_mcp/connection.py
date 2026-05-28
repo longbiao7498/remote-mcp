@@ -23,7 +23,6 @@ class SSHConnection:
         self._sftp: Optional[paramiko.SFTPClient] = None
         self._jump_client: Optional[paramiko.SSHClient] = None
         self._reconnected: bool = False
-        self._bash_session = None
         self._snapshot_path: Optional[str] = None
 
     def connect(self) -> None:
@@ -75,15 +74,6 @@ class SSHConnection:
             self._transport.set_keepalive(self.config.keepalive_interval)
 
         self._create_snapshot()
-
-    def get_bash_session(self):
-        from .bash_session import BashSession
-        if self._bash_session is None:
-            if self._client is None or self._transport is None:
-                raise RuntimeError("SSHConnection not connected")
-            self._bash_session = BashSession(self._transport, self.config)
-            self._bash_session.start()
-        return self._bash_session
 
     def _create_snapshot(self) -> None:
         """Dump shell environment to /tmp/rmcp-snapshot-<host>-<pid>.sh on remote.
@@ -175,12 +165,6 @@ class SSHConnection:
             except Exception:
                 pass
             self._snapshot_path = None
-        if self._bash_session is not None:
-            try:
-                self._bash_session.close()
-            except Exception:
-                pass
-            self._bash_session = None
         if self._sftp is not None:
             try:
                 self._sftp.close()

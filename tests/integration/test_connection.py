@@ -158,42 +158,6 @@ def test_exec_with_retry_recovers_after_disconnect(host_config, sshd_kill_and_re
         conn.close()
 
 
-def test_get_bash_session_lazy_singleton(host_config):
-    conn = SSHConnection(host_config)
-    conn.connect()
-    try:
-        s1 = conn.get_bash_session()
-        s2 = conn.get_bash_session()
-        assert s1 is s2
-        # Verify it works
-        result = s1.execute("echo via_connection")
-        assert "via_connection" in result.output
-    finally:
-        conn.close()
-
-
-def test_reconnect_invalidates_bash_session(host_config, sshd_kill_and_restart):
-    conn = SSHConnection(host_config)
-    conn.connect()
-    try:
-        s_pre = conn.get_bash_session()
-        s_pre.execute("cd /tmp")
-
-        sshd_kill_and_restart(conn)
-
-        # exec_with_retry forces reconnect
-        conn.exec_with_retry("echo touchstone")
-
-        # Now get_bash_session should return a NEW session (state reset)
-        s_post = conn.get_bash_session()
-        assert s_post is not s_pre
-        # cwd reset to $HOME
-        result = s_post.execute("pwd")
-        assert result.output.strip() != "/tmp"
-    finally:
-        conn.close()
-
-
 def test_snapshot_created_on_connect(sshd_container, ssh_key):
     from remote_mcp.config import HostConfig
     from remote_mcp.connection import SSHConnection
