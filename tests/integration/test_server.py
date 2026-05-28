@@ -81,3 +81,75 @@ def test_call_tool_reconnect_warning(runtime_config, sshd_kill_and_restart):
         assert "[WARNING] SSH connection to test was lost" in text
     finally:
         srv._teardown_for_test()
+
+
+def test_call_tool_appends_unified_suffix_to_bash(runtime_config):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        result = asyncio.run(srv.call_tool("Bash", {"command": "echo hi"}))
+        text = result[0].text
+        assert text.endswith("[host=test cwd=" + srv._conn.config.cwd + "]")
+        assert "hi" in text
+    finally:
+        srv._teardown_for_test()
+
+
+def test_call_tool_appends_unified_suffix_to_read(runtime_config):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        asyncio.run(srv.call_tool("Write", {
+            "file_path": "/tmp/rmcp-suffix-test.txt",
+            "content": "ok\n",
+        }))
+        result = asyncio.run(srv.call_tool("Read", {
+            "file_path": "/tmp/rmcp-suffix-test.txt",
+        }))
+        text = result[0].text
+        assert text.endswith("[host=test cwd=" + srv._conn.config.cwd + "]")
+    finally:
+        srv._teardown_for_test()
+
+
+def test_call_tool_appends_unified_suffix_to_error(runtime_config):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        result = asyncio.run(srv.call_tool("Read", {
+            "file_path": "/tmp/this-does-not-exist-rmcp-12345",
+        }))
+        text = result[0].text
+        assert "Error: File not found" in text
+        assert text.endswith("[host=test cwd=" + srv._conn.config.cwd + "]")
+    finally:
+        srv._teardown_for_test()
+
+
+def test_call_tool_appends_unified_suffix_to_feedback(runtime_config):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        result = asyncio.run(srv.call_tool("Feedback", {
+            "category": "enhancement",
+            "summary": "x",
+            "details": "y",
+        }))
+        text = result[0].text
+        assert text.endswith("[host=test cwd=" + srv._conn.config.cwd + "]")
+    finally:
+        srv._teardown_for_test()
+
+
+def test_call_tool_reconnect_warning_simplified(runtime_config, sshd_kill_and_restart):
+    srv._init_for_test(runtime_config, "test")
+    try:
+        asyncio.run(srv.call_tool("Bash", {"command": "echo a"}))
+        sshd_kill_and_restart(srv._conn)
+        result = asyncio.run(srv.call_tool("Glob", {
+            "pattern": "*", "path": "/tmp",
+        }))
+        text = result[0].text
+        assert "[WARNING] SSH connection to test was lost and has been re-established" in text
+        assert "Snapshot was rebuilt" in text
+        # New simplified text — NOT containing the old "shell state was reset" phrase
+        assert "shell state was reset" not in text
+        assert "working directory is now $HOME" not in text
+    finally:
+        srv._teardown_for_test()

@@ -48,16 +48,22 @@ async def call_tool(name: str, arguments: dict):
     # ALL tools dispatch through _with_retry per spec §9.
     result = _with_retry(lambda: _raw_dispatch(name, arguments))
 
+    # Reconnect WARNING prefix (only on successful reconnect, spec §5.6)
     prefix = ""
     if _conn is not None and _conn.check_and_clear_reconnect_flag():
         prefix = (
-            f"[WARNING] SSH connection to {_conn.config.name} was lost and "
-            f"has been re-established. The remote bash session has been reset: "
-            f"working directory is now $HOME, all environment variables set in "
-            f"previous commands are lost. Use absolute paths and re-run any "
-            f"necessary setup commands.\n\n"
+            f"[WARNING] SSH connection to {_conn.config.name} was lost "
+            f"and has been re-established. Snapshot was rebuilt; if your "
+            f"bashrc has changed since the connection started, the new "
+            f"state takes effect from this point.\n\n"
         )
-    return [TextContent(type="text", text=prefix + result)]
+
+    # Unified suffix — append to every tool output (success + error)
+    suffix = ""
+    if _conn is not None:
+        suffix = f"\n\n[host={_conn.config.name} cwd={_conn.config.cwd}]"
+
+    return [TextContent(type="text", text=prefix + result + suffix)]
 
 
 def _raw_dispatch(name: str, args: dict) -> str:
