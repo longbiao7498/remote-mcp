@@ -163,10 +163,17 @@ class SSHConnection:
             )
             self._snapshot_path = None
 
-    def exec(self, command: str, timeout: float = 30.0) -> ExecResult:
-        """One-shot exec. Opens a new channel, runs cmd, closes."""
+    def exec(self, command: str, timeout: Optional[float] = None) -> ExecResult:
+        """One-shot exec. Opens a new channel, runs cmd, closes.
+
+        timeout=None means use self.config.op_timeout_default. The value is
+        passed to paramiko's exec_command which sets channel.settimeout —
+        i.e. "no bytes for <timeout> seconds → socket.timeout raised".
+        """
         if self._client is None:
             raise RuntimeError("SSHConnection not connected; call connect() first")
+        if timeout is None:
+            timeout = float(self.config.op_timeout_default)
         stdin, stdout, stderr = self._client.exec_command(command, timeout=timeout)
         out = stdout.read().decode("utf-8", errors="replace")
         err = stderr.read().decode("utf-8", errors="replace")
@@ -178,6 +185,7 @@ class SSHConnection:
             if self._client is None:
                 raise RuntimeError("SSHConnection not connected")
             self._sftp = self._client.open_sftp()
+            self._sftp.get_channel().settimeout(float(self.config.op_timeout_default))
         return self._sftp
 
     def check_and_clear_reconnect_flag(self) -> bool:
@@ -192,7 +200,7 @@ class SSHConnection:
         self.connect()
         self._reconnected = True
 
-    def exec_with_retry(self, command: str, timeout: float = 30.0) -> ExecResult:
+    def exec_with_retry(self, command: str, timeout: Optional[float] = None) -> ExecResult:
         """exec() with one-shot auto-reconnect on SSH-level failure."""
         try:
             return self.exec(command, timeout=timeout)
