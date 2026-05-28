@@ -2,6 +2,7 @@
 import shlex
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 _VALID_OUTPUT_MODES = ("content", "files_with_matches", "count")
@@ -41,6 +42,11 @@ def grep_tool(conn: SSHConnection, pattern: str, path: str,
         `"Error: <stderr>"` if exit code is 2 (grep error, e.g., invalid regex).
         Output is truncated to head_limit lines.
     """
+    try:
+        path = resolve_path(path, conn.config.cwd or "/")
+    except ValueError as e:
+        return f"Error: {e}"
+
     if output_mode not in _VALID_OUTPUT_MODES:
         return (
             f"Error: invalid output_mode: {output_mode!r}. "

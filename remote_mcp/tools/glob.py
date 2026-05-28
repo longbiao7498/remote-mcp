@@ -2,6 +2,7 @@
 import shlex
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def _glob_to_find_expr(pattern: str) -> str:
@@ -56,6 +57,11 @@ def glob_tool(conn: SSHConnection, pattern: str, path: str = ".") -> str:
             `conn.config.glob_output_limit` (default 1000).
         `"Error: ..."` on find command failures (e.g., permission, invalid path).
     """
+    try:
+        path = resolve_path(path, conn.config.cwd or "/")
+    except ValueError as e:
+        return f"Error: {e}"
+
     find_expr = _glob_to_find_expr(pattern)
     limit = conn.config.glob_output_limit
     # Use bash -c so the quoting in find_expr is preserved
