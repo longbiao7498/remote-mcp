@@ -14,6 +14,10 @@ class ExecResult:
     exit_code: int
 
 
+class SSHConnectionError(Exception):
+    """Raised when SSH setup or cwd validation fails fatally."""
+
+
 class SSHConnection:
     def __init__(self, config: HostConfig, jump_config: Optional[HostConfig] = None):
         self.config = config
@@ -73,7 +77,57 @@ class SSHConnection:
         if self.config.keepalive_interval > 0:
             self._transport.set_keepalive(self.config.keepalive_interval)
 
+        # --- v0.2.0: cwd resolution and validation (spec §6.2, §6.4) ---
+        self._resolve_and_validate_cwd()
+
         self._create_snapshot()
+
+    def _resolve_and_validate_cwd(self) -> None:
+        """Apply ~ expansion + format check + SFTP stat (spec §6.2, §6.4)."""
+        cwd = self.config.cwd if self.config.cwd is not None else "~"
+
+        # Format check: only allow absolute paths, ~, or ~/...
+        if not (cwd == "~" or cwd.startswith("/") or cwd.startswith("~/")):
+            raise SSHConnectionError(
+                f"cwd must be an absolute path or start with '~/' "
+                f"(got: '{cwd}'). Valid: /opt/app, ~/projects/myapp, ~"
+            )
+
+        # ~ expansion
+        if cwd == "~" or cwd.startswith("~/"):
+            home = self._resolve_remote_home()
+            cwd = home if cwd == "~" else home + cwd[1:]
+
+        # Write back so RemoteInfo / suffix / snapshot all see the same value
+        self.config.cwd = cwd
+
+        # SFTP stat — does not depend on remote shell
+        import stat as _stat
+        sftp = self.get_sftp()
+        try:
+            st = sftp.stat(cwd)
+        except IOError:
+            raise SSHConnectionError(
+                f"configured cwd '{cwd}' does not exist on host "
+                f"'{self.config.name}'. Fix the --cwd argument or remove it "
+                f"to use $HOME."
+            )
+        if not _stat.S_ISDIR(st.st_mode or 0):
+            raise SSHConnectionError(
+                f"configured cwd '{cwd}' exists on host "
+                f"'{self.config.name}' but is not a directory."
+            )
+
+    def _resolve_remote_home(self) -> str:
+        """Query remote $HOME via bash -c (per spec §6.2)."""
+        r = self.exec("bash -c 'echo $HOME'", timeout=10.0)
+        home = r.stdout.strip()
+        if not home or not home.startswith("/"):
+            raise SSHConnectionError(
+                f"could not resolve remote $HOME on host "
+                f"'{self.config.name}' (got: {home!r})"
+            )
+        return home
 
     def _create_snapshot(self) -> None:
         """Dump shell environment to /tmp/rmcp-snapshot-<host>-<pid>.sh on remote.

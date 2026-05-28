@@ -260,3 +260,118 @@ def test_snapshot_rebuilt_after_reconnect(sshd_container, ssh_key, sshd_kill_and
         assert r.stdout.strip() == "OK"
     finally:
         c.close()
+
+
+# ---------------------------------------------------------------------------
+# B4: cwd format check + ~ expansion + SFTP stat fail-fast
+# ---------------------------------------------------------------------------
+
+def test_cwd_default_resolves_to_home(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdhome",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd=None,  # default → ~
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        # After connect, config.cwd should be the absolute expanded home
+        assert c.config.cwd is not None
+        assert c.config.cwd.startswith("/")
+        # Verify it's actually a directory on remote
+        r = c.exec(f"test -d {c.config.cwd} && echo OK")
+        assert r.stdout.strip() == "OK"
+    finally:
+        c.close()
+
+
+def test_cwd_tilde_expanded(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdtilde",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="~",
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        assert c.config.cwd.startswith("/")  # expanded
+        assert "~" not in c.config.cwd
+    finally:
+        c.close()
+
+
+def test_cwd_absolute_passes_through(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdabs",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="/tmp",
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        assert c.config.cwd == "/tmp"
+    finally:
+        c.close()
+
+
+def test_cwd_invalid_format_fails_fast(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdbad",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="myapp",  # bare relative — invalid
+    )
+    c = SSHConnection(cfg)
+    with pytest.raises(Exception, match="cwd must be an absolute path"):
+        c.connect()
+
+
+def test_cwd_nonexistent_fails_fast(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdmiss",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="/this/path/does/not/exist/rmcp-test-12345",
+    )
+    c = SSHConnection(cfg)
+    with pytest.raises(Exception, match="does not exist"):
+        c.connect()
+
+
+def test_cwd_tilde_user_other_rejected(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="cwdtildeu",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="~root",  # other user's home — invalid
+    )
+    c = SSHConnection(cfg)
+    with pytest.raises(Exception, match="cwd must be an absolute path"):
+        c.connect()
