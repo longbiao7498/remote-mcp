@@ -1,5 +1,11 @@
 > English version: [CLAUDE.md.fragment.md](./CLAUDE.md.fragment.md)
 
+## remote-mcp v0.2.0 行为说明（shell + 路径）
+
+- **Bash 非持久**：`cd dir`、`export FOO=bar`、`source venv/bin/activate` 跨调用**不**保留。链式操作请内联完成：`cd dir && cmd`、`FOO=bar cmd`、`venv/bin/python script.py`。
+- **路径可以是相对的**：所有文件/搜索工具接受相对于配置 `cwd`（`--cwd /opt/app`）的路径。`Read("config.yaml")` 读取 `/opt/app/config.yaml`。工具参数中**不允许** `~` ——使用绝对路径或相对 cwd 的路径。当前 cwd 会出现在每个工具的输出末尾：`[host=X cwd=Y]`。
+- **Glob/Grep 输出**：绝对路径（如 `/opt/app/foo.py`）——可直接喂给 Read/Edit，无需拼接。
+
 ## 在远程主机上工作（remote-mcp 工具使用指南）
 
 本项目通过 `mcp__remote-<host>__` 系列工具操控远程服务器。SSH 链路带宽有限、延迟较高。
@@ -16,7 +22,9 @@
 - 同一文件多处修改，**一律用 MultiEdit**，禁止连续 Edit。
 
 **Shell 操作**
-- 多步骤操作优先组合命令：`cmd1 && cmd2 && cmd3` 一次 Bash 调用。更复杂的逻辑写脚本（Write 上传 → Bash 执行）。
+- **shell 状态跨调用不持久。** 每次 Bash 调用都是一个全新的 shell，从配置的 cwd 开始。`cd`、`export`、`source venv/bin/activate` 只在当次调用内生效。
+- 需要共享状态的多步操作，请在一次调用内链式完成：`cd dir && cmd1 && cmd2`。激活 venv 并运行命令：`venv/bin/python script.py` 或 `. venv/bin/activate && python script.py`——全部在一次 Bash 调用内。
+- 更复杂的逻辑写脚本（Write 上传 → Bash 执行）。
 - 长耗时操作（build / 测试 / install / 大下载）**用 `Bash(command="...", run_in_background=true)`**，agent 不会被阻塞。
   - 工具返回会打印 PID、日志路径、4 条操作命令模板——**照抄即可**。
   - 用 `Read(log_path, offset=<last_line+1>)` 增量拉日志，不要 `Bash("cat log")`。
@@ -26,7 +34,7 @@
 - 文件传输（二进制或大文件）：**优先 `Bash("scp <local> <user>@<host>:<remote>", run_in_background=true)`** 而不是 `Upload` / `Download` 工具。scp/rsync 在后台模式下非阻塞、不限大小。`Upload`/`Download` 是给 PATH 中无 scp 的 Windows 用户的兜底，且受 `transfer_size_cap` 限制（默认 100 MB）。Linux/macOS 上 scp 在每个维度都更好。
 
 ### 多主机模式（2-3 台同时操作时）
-- 工具调用结果会有 `[host=X cwd=Y]` 前缀，注意辨认当前操作的是哪台主机。
+- 工具调用结果末尾会有 `[host=X cwd=Y]` 后缀，注意辨认当前操作的是哪台主机。
 - 尽量把工作集中在单台主机上完成；跨主机协调需求增加错误率。
 - 跨主机文件传输：用 Bash 调 `scp <local>:<path> <remote>:<path>`（需用户预先在主机间配好 SSH 互信）。**禁止** Read-本地中转-Write 的"双跳"模式。
 - 看到 `[WARNING] SSH connection to <host> was lost` 时，状态丢失仅限那台主机。
