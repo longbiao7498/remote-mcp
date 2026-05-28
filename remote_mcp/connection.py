@@ -130,18 +130,9 @@ class SSHConnection:
         return home
 
     def _create_snapshot(self) -> None:
-        """Dump shell environment to /tmp/rmcp-snapshot-<host>-<pid>.sh on remote.
-
-        Per spec §5.1: bash -ic loads ~/.bashrc once; declare -p / declare -fp /
-        alias capture vars, functions, aliases. Written via SFTP (not heredoc) to
-        avoid quoting hell. PID is the LOCAL MCP server process pid so concurrent
-        MCP instances against the same remote don't collide.
-
-        Failure to create snapshot is a warning (logged) not a fatal error —
-        Bash invocations will run without snapshot (loses user PATH/aliases)
-        but still work. See Task B5 for the cwd cd appendix.
-        """
+        """Dump shell environment + cd into configured cwd (spec §5.1, §6.5)."""
         import os
+        import shlex
         pid = os.getpid()
         path = f"/tmp/rmcp-snapshot-{self.config.name}-{pid}.sh"
         self._snapshot_path = path
@@ -156,6 +147,10 @@ class SSHConnection:
         try:
             result = self.exec(cmd, timeout=30.0)
             content = result.stdout
+            # Append cd <cwd> || exit 1 so every Bash invocation starts at cwd.
+            # cwd is already absolute (resolved in _resolve_and_validate_cwd).
+            if self.config.cwd:
+                content += f"\ncd {shlex.quote(self.config.cwd)} || exit 1\n"
             sftp = self.get_sftp()
             with sftp.file(path, "w") as f:
                 f.write(content.encode("utf-8"))

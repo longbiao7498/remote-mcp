@@ -375,3 +375,24 @@ def test_cwd_tilde_user_other_rejected(sshd_container, ssh_key):
     c = SSHConnection(cfg)
     with pytest.raises(Exception, match="cwd must be an absolute path"):
         c.connect()
+
+
+def test_snapshot_contains_cd_cwd(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="snapcd",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        cwd="/tmp",
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        r = c.exec(f"tail -3 {c._snapshot_path}")
+        assert "cd '/tmp'" in r.stdout or "cd /tmp" in r.stdout
+        assert "|| exit 1" in r.stdout
+    finally:
+        c.close()

@@ -169,3 +169,31 @@ def test_bash_background_log_readable(conn):
     assert "line1" in log_content
     assert "line2" in log_content
     assert "line3" in log_content
+
+
+@pytest.fixture
+def conn_with_cwd(sshd_container, ssh_key):
+    cfg = HostConfig(
+        name="test",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        bash_timeout_default=15,
+        cwd="/tmp",
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    yield c
+    c.close()
+
+
+def test_bash_pwd_uses_configured_cwd(conn_with_cwd):
+    out = bash_tool.bash(conn_with_cwd, "pwd")
+    assert out.strip() == "/tmp"
+
+
+def test_bash_cd_does_not_persist_cwd_resets_to_configured(conn_with_cwd):
+    bash_tool.bash(conn_with_cwd, "cd /var")
+    out = bash_tool.bash(conn_with_cwd, "pwd")
+    assert out.strip() == "/tmp"  # not /var
