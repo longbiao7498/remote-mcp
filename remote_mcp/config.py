@@ -27,6 +27,7 @@ class HostConfig:
     bash_output_cap: int = 100 * 1024
     transfer_size_cap: int = 100 * 1024 * 1024   # 100 MB cap for Upload/Download
     cwd: Optional[str] = None                     # remote working dir; None → $HOME
+    op_timeout_default: int = 60                  # per-op idle timeout (s); v0.2.2
 
 
 @dataclass
