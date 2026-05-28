@@ -32,6 +32,7 @@ This wording is API-stable — consumers (especially Claude Code's error-recover
 | `old_string` not found in file (zero occurrences, `replace_all=False`) | `Error: old_string not found in <file_path>` |
 | `old_string` not found in file (zero occurrences, `replace_all=True`) | `Error: old_string not found in <file_path>` |
 | `old_string` found more than once and `replace_all=False` | `Error: old_string found <N> times in <file_path> (lines <L1, L2, ...>). Provide more context to match uniquely, or set replace_all=true to replace all.` |
+| v0.2.2: SSH-layer failure mid-operation | `Error: <ExceptionType>: <message>` (e.g. `Error: SSHException: Channel closed.`) — NOT auto-retried; agent should verify remote state (via Read or Bash queries) before retrying, especially for state-changing commands. The next tool call will auto-reconnect. |
 
 ### MultiEdit
 
@@ -42,6 +43,7 @@ This wording is API-stable — consumers (especially Claude Code's error-recover
 | Edit N's `old_string` not found (zero occurrences, `replace_all=False`) | `Error: edit #<N>: old_string not found` |
 | Edit N's `old_string` not found (zero occurrences, `replace_all=True`) | `Error: edit #<N>: old_string not found` |
 | Edit N's `old_string` found more than once and `replace_all=False` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
+| v0.2.2: SSH-layer failure mid-operation | `Error: <ExceptionType>: <message>` (e.g. `Error: SSHException: Channel closed.`) — NOT auto-retried; agent should verify remote state (via Read or Bash queries) before retrying, especially for state-changing commands. The next tool call will auto-reconnect. |
 
 ### MultiRead
 
@@ -68,6 +70,8 @@ Per-path failures are not `"Error: ..."` strings — they are reported inline wi
 |---------|-----------------|
 | Foreground command exceeds timeout | `Error: Command timed out after <timeout>s on <host>` |
 | Background launch succeeds but `BG_PID=<n>` not found in output | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
+| v0.2.2: SSH-layer failure mid-operation | `Error: <ExceptionType>: <message>` (e.g. `Error: SSHException: Channel closed.`) — NOT auto-retried; agent should verify remote state (via Read or Bash queries) before retrying, especially for state-changing commands. The next tool call will auto-reconnect. |
+| v0.2.2: background command may have started but response was lost | `Error: background launch on <host> may have started but the response was lost...` — bug #3: the remote process may already be running. Use `Bash("cat /tmp/rmcp-bg-*.pid")` then `kill -0` to find live orphan PIDs. |
 
 ### Glob
 
@@ -137,6 +141,9 @@ These errors are returned by any tool that accepts a `path` parameter, before th
 | Startup-time `--cwd` / `hosts.<name>.cwd` value is not absolute and does not start with `~/` | `Error: cwd must be an absolute path or start with '~/' (got: '<value>')` |
 | Startup-time SFTP stat of configured cwd fails with "not found" | `configured cwd '<path>' does not exist on host '<host>'` |
 | Startup-time SFTP stat of configured cwd finds a non-directory | `configured cwd '<path>' exists on host '<host>' but is not a directory` |
+| v0.2.2: snapshot file was externally removed; re-upload succeeded | `[WARNING] ... snapshot file was missing ... has been re-uploaded` — snapshot was externally removed (e.g. user cleared `~/.cache/`); re-uploaded from local cache. Environment captured at session start is preserved. No agent action required. |
+| v0.2.2: snapshot file was missing and re-upload also failed | `[WARNING] ... re-upload failed ... will run without the user's PATH/aliases` — Bash calls until next MCP restart will lack user environment. Use absolute paths. |
+| v0.2.2: initial snapshot capture failed at MCP startup | `[WARNING] Session-start snapshot capture failed ...` — same effect as re-upload failure above: Bash runs without user environment until next MCP restart. |
 
 ## Cross-cutting notes
 
