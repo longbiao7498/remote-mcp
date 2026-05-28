@@ -91,3 +91,26 @@ def test_load_config_with_custom_transfer_size_cap(tmp_path: Path):
     """).strip())
     root = load_config(str(cfg))
     assert root.hosts["big"].transfer_size_cap == 524288000
+
+
+def test_host_config_cwd_default_is_none():
+    cfg = HostConfig(name="x", hostname="h", user="u")
+    assert cfg.cwd is None
+
+
+def test_load_config_with_cwd(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(textwrap.dedent("""
+        hosts:
+          prod:
+            hostname: 10.0.0.1
+            user: ubuntu
+            cwd: /opt/myapp
+          home:
+            hostname: 10.0.0.2
+            user: alice
+            cwd: ~/projects/myapp
+    """).strip())
+    root = load_config(str(cfg))
+    assert root.hosts["prod"].cwd == "/opt/myapp"
+    assert root.hosts["home"].cwd == "~/projects/myapp"
