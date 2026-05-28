@@ -6,6 +6,27 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)；版本遵循
 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.2.2] — 2026-05-28
+
+### 网络健壮性——统一行为契约
+
+以下四项修复针对同一根本设计缺陷：早期版本未将网络故障作为一等公民考虑，各工具对其处理方式各行其是。v0.2.2 在框架层建立了三条行为契约（有界时间返回、成功与失败可区分、不虚报结果）。各工具代码基本不变。
+
+### 新增
+- `HostConfig.op_timeout_default`（默认 60s）：通过 `channel.settimeout` 将空闲超时应用于所有 SFTP 和 exec 通道。防止笔记本休眠时 SFTP 静默挂起（bug #2）。
+- `server.NO_RETRY_TOOLS`（`{Edit, MultiEdit, Bash}`）：该集合中的工具绕过 `_with_retry`，通过新的 `_with_reconnect_only` 辅助函数路由。SSH 故障触发重连，但原始错误返回给 agent——不透明地重新执行。
+- 本地内存快照缓存：在 MCP 启动时捕获一次，持久化到远端 `~/.cache/remote-mcp/snapshot-<pid>.sh`。重连时仅在远端文件缺失的情况下从缓存重新上传；永不重新运行 `bash -ic`（会话中途的 bashrc 变更故意不被感知，与 Claude Code 原生行为一致）。
+- 后台 bash pidfile：`_bash_background` 在 echo `BG_PID` 之前将 PID 写入 `/tmp/rmcp-bg-<uuid>.pid`。即使 echo 响应丢失，agent 也可以通过 `Bash("cat /tmp/rmcp-bg-*.pid")` 恢复孤儿 PID（bug #3）。
+
+### 变更
+- Edit 和 MultiEdit 在 SSH 层故障时不再自动重试（bug #1）。读-改-写工具若已在远端成功写入，重试后可能返回虚假的 `old_string not found`。agent 现在看到 `Error: <SSHException>: ...`，自行决定是否重新发起。
+- Bash 的 SSH 层故障同样不再经过 `_with_retry`（v0.2.1 中的 Bash 通道死亡处理逻辑不变）。
+- 重连 WARNING 文本现有三种变体：(A) 正常复用，不提及快照；(B) "远端快照缺失，已从本地缓存重新上传"；(C) "重新上传失败，后续 Bash 将在无 PATH/别名的环境下运行"（bug #4）。
+- 新增"会话启动时快照捕获失败"WARNING，在初始快照捕获失败后首次工具调用时显示一次。
+- 快照文件位置从 `/tmp/rmcp-snapshot-<host>-<pid>.sh` 迁移到 `~/.cache/remote-mcp/snapshot-<pid>.sh`，避免 `/tmp` 被清理。
+- `close()` 不再删除远端快照文件（它持久保存在 `~/.cache/` 中）。
+- `connect()` 不再调用快照捕获；捕获现在由 `server.main()` 在启动时触发一次。
+
 ## [0.2.1] — 2026-05-28
 
 ### 修复

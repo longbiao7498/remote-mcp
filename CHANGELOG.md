@@ -6,6 +6,27 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] — 2026-05-28
+
+### Network robustness — unified behavioral contract
+
+All four fixes below address the same root design gap: network failure was not a first-class concern in earlier versions, and individual tools handled it ad-hoc. v0.2.2 establishes three behavioral contracts (bounded-time return, distinguishable success/failure, no false reporting) enforced at the framework level. Per-tool code is essentially unchanged.
+
+### Added
+- `HostConfig.op_timeout_default` (default 60s): idle timeout applied to all SFTP and exec channels via `channel.settimeout`. Prevents silent SFTP hangs during laptop suspend (bug #2).
+- `server.NO_RETRY_TOOLS` (`{Edit, MultiEdit, Bash}`): tools in this set bypass `_with_retry` and route through a new `_with_reconnect_only` helper. SSH failures trigger reconnect but the original error is returned to agent — no transparent re-execution.
+- Local in-memory snapshot cache: captured once at MCP startup, persisted to remote `~/.cache/remote-mcp/snapshot-<pid>.sh`. Reconnect re-uploads from cache only if remote file is missing; never re-runs `bash -ic` (bashrc changes mid-session are deliberately not picked up, matching Claude Code native).
+- Background bash pidfile: `_bash_background` writes PID to `/tmp/rmcp-bg-<uuid>.pid` before echoing `BG_PID`. Even if the echo response is lost, agent can `Bash("cat /tmp/rmcp-bg-*.pid")` to recover orphan PIDs (bug #3).
+
+### Changed
+- Edit and MultiEdit no longer auto-retry on SSH-layer failure (bug #1). Read-modify-write tools that successfully wrote on remote could otherwise return a false `old_string not found` after retry. Agent now sees `Error: <SSHException>: ...` and decides whether to re-issue.
+- Bash also no longer goes through `_with_retry` for its SSH-layer failures (Bash channel-death handling from v0.2.1 unchanged).
+- Reconnect WARNING text now has three variants: (A) normal reuse without snapshot mention; (B) "remote snapshot was missing and has been re-uploaded from local cache"; (C) "re-upload failed, subsequent Bash will run without PATH/aliases" (bug #4).
+- New "session-start snapshot capture failed" WARNING shown once on first tool call after a failed initial snapshot capture.
+- Snapshot file location moves from `/tmp/rmcp-snapshot-<host>-<pid>.sh` to `~/.cache/remote-mcp/snapshot-<pid>.sh` to avoid `/tmp` cleanup.
+- `close()` no longer deletes the remote snapshot file (it persists in `~/.cache/`).
+- `connect()` no longer calls snapshot capture; capture is now triggered once by `server.main()` at startup.
+
 ## [0.2.1] — 2026-05-28
 
 ### Fixed
