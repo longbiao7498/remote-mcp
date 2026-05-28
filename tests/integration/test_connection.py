@@ -192,3 +192,107 @@ def test_reconnect_invalidates_bash_session(host_config, sshd_kill_and_restart):
         assert result.output.strip() != "/tmp"
     finally:
         conn.close()
+
+
+def test_snapshot_created_on_connect(sshd_container, ssh_key):
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    cfg = HostConfig(
+        name="snaptest",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        # Snapshot path should be set
+        assert c._snapshot_path is not None
+        assert c._snapshot_path.startswith("/tmp/rmcp-snapshot-snaptest-")
+        assert c._snapshot_path.endswith(".sh")
+        # File should exist on remote
+        r = c.exec(f"test -f {c._snapshot_path} && echo OK")
+        assert r.stdout.strip() == "OK"
+        # Snapshot content includes at least one `declare` line
+        r = c.exec(f"head -5 {c._snapshot_path}")
+        assert "declare" in r.stdout
+    finally:
+        c.close()
+
+
+def test_snapshot_removed_on_close(sshd_container, ssh_key):
+    """After close(), the snapshot file must be gone. Verify with a raw
+    paramiko client (NOT a second SSHConnection, which would create a new
+    snapshot at the same path and defeat the test)."""
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+    import paramiko
+
+    cfg = HostConfig(
+        name="snaptest2",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    snap_path = c._snapshot_path
+    c.close()
+
+    # Verify via raw paramiko (no snapshot side-effects)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        sshd_container["host"],
+        port=sshd_container["port"],
+        username=sshd_container["user"],
+        key_filename=ssh_key["private_path"],
+        timeout=5,
+    )
+    try:
+        stdin, stdout, _ = client.exec_command(
+            f"test -f {snap_path} && echo PRESENT || echo GONE"
+        )
+        out = stdout.read().decode().strip()
+        assert out == "GONE", f"snapshot still exists at {snap_path}"
+    finally:
+        client.close()
+
+
+def test_snapshot_rebuilt_after_reconnect(sshd_container, ssh_key, sshd_kill_and_restart):
+    """After _do_reconnect(), the snapshot must exist again with a valid path.
+    A2 relies on _snapshot_path staying non-None across reconnects."""
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+
+    cfg = HostConfig(
+        name="snaprc",
+        hostname=sshd_container["host"],
+        port=sshd_container["port"],
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    try:
+        path_before = c._snapshot_path
+        assert path_before is not None
+
+        # Simulate dropped connection
+        sshd_kill_and_restart(c)
+
+        # Trigger reconnect via the retry helper
+        r = c.exec_with_retry("echo OK")
+        assert r.stdout.strip() == "OK"
+
+        # Snapshot path is set again (same path, since PID unchanged)
+        assert c._snapshot_path is not None
+        assert c._snapshot_path == path_before
+
+        # And the file actually exists on remote
+        r = c.exec(f"test -f {c._snapshot_path} && echo OK")
+        assert r.stdout.strip() == "OK"
+    finally:
+        c.close()

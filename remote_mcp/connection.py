@@ -24,6 +24,7 @@ class SSHConnection:
         self._jump_client: Optional[paramiko.SSHClient] = None
         self._reconnected: bool = False
         self._bash_session = None
+        self._snapshot_path: Optional[str] = None
 
     def connect(self) -> None:
         """Build the SSH client + Transport. Idempotent: closes any prior."""
@@ -73,6 +74,8 @@ class SSHConnection:
         if self.config.keepalive_interval > 0:
             self._transport.set_keepalive(self.config.keepalive_interval)
 
+        self._create_snapshot()
+
     def get_bash_session(self):
         from .bash_session import BashSession
         if self._bash_session is None:
@@ -81,6 +84,45 @@ class SSHConnection:
             self._bash_session = BashSession(self._transport, self.config)
             self._bash_session.start()
         return self._bash_session
+
+    def _create_snapshot(self) -> None:
+        """Dump shell environment to /tmp/rmcp-snapshot-<host>-<pid>.sh on remote.
+
+        Per spec §5.1: bash -ic loads ~/.bashrc once; declare -p / declare -fp /
+        alias capture vars, functions, aliases. Written via SFTP (not heredoc) to
+        avoid quoting hell. PID is the LOCAL MCP server process pid so concurrent
+        MCP instances against the same remote don't collide.
+
+        Failure to create snapshot is a warning (logged) not a fatal error —
+        Bash invocations will run without snapshot (loses user PATH/aliases)
+        but still work. See Task B5 for the cwd cd appendix.
+        """
+        import os
+        pid = os.getpid()
+        path = f"/tmp/rmcp-snapshot-{self.config.name}-{pid}.sh"
+        self._snapshot_path = path
+
+        # `2>/dev/null` on the inner commands suppresses bashrc-emitted noise
+        # (some users print to stderr in bashrc)
+        cmd = (
+            "bash -ic 'declare -p 2>/dev/null; declare -fp 2>/dev/null; "
+            "alias 2>/dev/null'"
+        )
+
+        try:
+            result = self.exec(cmd, timeout=30.0)
+            content = result.stdout
+            sftp = self.get_sftp()
+            with sftp.file(path, "w") as f:
+                f.write(content.encode("utf-8"))
+        except Exception as e:
+            import sys
+            print(
+                f"[remote-mcp] WARNING: snapshot creation failed on "
+                f"{self.config.name}: {e}; Bash will run without snapshot",
+                file=sys.stderr,
+            )
+            self._snapshot_path = None
 
     def exec(self, command: str, timeout: float = 30.0) -> ExecResult:
         """One-shot exec. Opens a new channel, runs cmd, closes."""
@@ -105,11 +147,10 @@ class SSHConnection:
         return flag
 
     def _do_reconnect(self) -> None:
-        """Tear down (if needed) and rebuild. Sets _reconnected=True on success."""
+        """Tear down (if needed) and rebuild. Sets _reconnected=True on success.
+        connect() re-runs _create_snapshot() which overwrites the old file."""
         self.close()
         self.connect()
-        # Note: any persistent BashSession is now invalid; whoever holds it
-        # must re-create. See bash_session integration in Task 2.5.
         self._reconnected = True
 
     def exec_with_retry(self, command: str, timeout: float = 30.0) -> ExecResult:
@@ -127,6 +168,13 @@ class SSHConnection:
             return self.exec(command, timeout=timeout)
 
     def close(self) -> None:
+        # Best-effort snapshot cleanup (must happen BEFORE channels close)
+        if self._snapshot_path is not None and self._client is not None:
+            try:
+                self.exec(f"rm -f {self._snapshot_path}", timeout=5.0)
+            except Exception:
+                pass
+            self._snapshot_path = None
         if self._bash_session is not None:
             try:
                 self._bash_session.close()
