@@ -197,3 +197,25 @@ def test_bash_cd_does_not_persist_cwd_resets_to_configured(conn_with_cwd):
     bash_tool.bash(conn_with_cwd, "cd /var")
     out = bash_tool.bash(conn_with_cwd, "pwd")
     assert out.strip() == "/tmp"  # not /var
+
+
+def test_bash_background_uses_configured_cwd(conn_with_cwd):
+    """Background bash should start at the configured cwd, not at $HOME.
+    Without sourcing the snapshot, background runs at sshd default which
+    silently breaks users who set --cwd."""
+    out = bash_tool.bash(conn_with_cwd, "pwd > /tmp/rmcp-bg-cwd-test.out", run_in_background=True)
+    m = re.search(r"PID:\s*(\d+)", out)
+    assert m, f"no PID in output: {out}"
+    pid = m.group(1)
+
+    # Wait for the background process to finish (it's a quick pwd)
+    for _ in range(50):
+        check = bash_tool.bash(conn_with_cwd, f"kill -0 {pid} 2>/dev/null && echo running || echo done")
+        if "done" in check:
+            break
+        time.sleep(0.1)
+
+    # Read the captured pwd
+    result = bash_tool.bash(conn_with_cwd, "cat /tmp/rmcp-bg-cwd-test.out")
+    assert "/tmp" in result, f"background bash didn't start at configured cwd /tmp, got: {result!r}"
+    bash_tool.bash(conn_with_cwd, "rm -f /tmp/rmcp-bg-cwd-test.out")

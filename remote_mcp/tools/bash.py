@@ -136,16 +136,32 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
 
 
 def _bash_background(conn: SSHConnection, command: str) -> str:
-    """Per-call exec; launches setsid+nohup so it survives channel close."""
+    """Per-call exec; launches setsid+nohup so it survives channel close.
+
+    Sources the snapshot inside the background bash so the configured cwd
+    (cd <cwd> at the end of the snapshot) and user PATH/aliases are in
+    effect for the background command. Matches foreground behavior.
+    """
     bg_uuid = uuid.uuid4().hex[:12]
     log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
-    quoted_cmd = shlex.quote(command)
+
+    # Build the inner bash command: source snapshot (if available) then run user command
+    if conn._snapshot_path:
+        inner = (
+            f"source {shlex.quote(conn._snapshot_path)} 2>/dev/null || true; "
+            f"{command}"
+        )
+    else:
+        inner = command
+    quoted_inner = shlex.quote(inner)
     quoted_log = shlex.quote(log_path)
-    # setsid makes the new bash a session+group leader so `kill -- -<pid>`
-    # kills the whole group; nohup is a belt-and-suspenders for SIGHUP;
-    # </dev/null detaches stdin; subshell-with-echo captures $! reliably.
+
+    # setsid: session leader so `kill -- -<pid>` kills the whole group
+    # nohup: belt-and-suspenders for SIGHUP
+    # </dev/null on outer bash: detach background from our session's stdin
+    # subshell-with-echo captures $! reliably
     wrap = (
-        f"( setsid nohup bash -c {quoted_cmd} "
+        f"( setsid nohup bash --noprofile --norc -c {quoted_inner} "
         f"> {quoted_log} 2>&1 </dev/null & echo \"BG_PID=$!\" )"
     )
     client = conn._client

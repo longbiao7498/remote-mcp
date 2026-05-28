@@ -67,7 +67,6 @@
 | 触发条件 | 返回字符串 |
 |---------|-----------|
 | 前台命令超时 | `Error: Command timed out after <timeout>s on <host>` |
-| 后台启动超时（10 秒内部限制） | `Error: failed to launch background task on <host> (timeout)` |
 | 后台启动成功但输出中未找到 `BG_PID=<n>` | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 
 ### Glob

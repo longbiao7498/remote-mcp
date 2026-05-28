@@ -67,7 +67,6 @@ Per-path failures are not `"Error: ..."` strings — they are reported inline wi
 | Trigger | Returned string |
 |---------|-----------------|
 | Foreground command exceeds timeout | `Error: Command timed out after <timeout>s on <host>` |
-| Background launch times out (10 s internal limit) | `Error: failed to launch background task on <host> (timeout)` |
 | Background launch succeeds but `BG_PID=<n>` not found in output | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 
 ### Glob
