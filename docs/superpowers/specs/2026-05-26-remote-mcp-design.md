@@ -5,6 +5,8 @@
 **实施记录**：参见 [`docs/superpowers/plans/2026-05-26-remote-mcp-implementation.md`](../plans/2026-05-26-remote-mcp-implementation.md)（31 个任务，6 阶段，全部完成）  
 **前身**：本规范取代仓库根目录的 `软件设计文档.md`（v1.0）。v1 中被验证仍然适用的决定在本规范中重述；v2 增量在第 7、8、10、15 节集中体现。
 
+> **Superseded sections (v0.2.0)**: §3.6 (persistent bash decision), §5.2 (bash_session.py + sentinel protocol), §5.3.7 (Bash tool implementation) are replaced by [`2026-05-27-v0.2.0-non-persistent-bash.md`](./2026-05-27-v0.2.0-non-persistent-bash.md).
+
 ---
 
 ## 1. 目标

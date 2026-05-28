@@ -6,6 +6,26 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)；版本遵循
 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.2.0] — 2026-05-27
+
+### 破坏性变更
+- **非持久化 Bash**：shell 状态（cwd、环境变量、已 source 的 venv）不再跨 Bash 调用持久。请使用 `cd dir && cmd`、`FOO=bar cmd`、`venv/bin/python script.py` 的方式在行内传递状态。与 Claude Code 原生行为对齐。
+- **输出格式**：所有工具的输出现在以 `\n\n[host=X cwd=Y]` 结尾（v0.1.x 中仅 Bash 在输出前加 `[host=X cwd=Y]\n` 前缀；现在由 MCP server 统一作为后缀附加）。解析精确字节偏移的脚本需要更新。
+- **Glob/Grep 输出路径**：默认 `path="."` 现在解析为配置的 cwd → 输出绝对路径（`/opt/app/foo.py`），而非相对路径（`./foo.py`）。与 Claude Code 原生行为对齐。
+
+### 新增
+- `--cwd <path>` CLI 标志与 `hosts.<name>.cwd` YAML 字段——为所有工具的相对路径提供锚点（`Read("config.yaml")` → `<cwd>/config.yaml`）。默认值 = 远程 `$HOME`。格式须为 `/...`、`~` 或 `~/...`；格式不合法则在启动时快速失败。波浪号在连接时展开。通过 SFTP stat 验证路径存在性——cwd 不存在则 MCP server 拒绝启动。
+- `remote_mcp/paths.py`，含 `resolve_path(path, cwd)` 辅助函数。
+- `RemoteInfo` 输出现在包含 `cwd=<value>` 行。
+
+### 移除
+- `remote_mcp/bash_session.py`（持久化 shell + sentinel 协议——已由按次调用 exec + 快照回放取代）。
+- `SSHConnection.get_bash_session()`。
+
+### 变更
+- 重连 WARNING 简化为：`[WARNING] SSH connection to <host> was lost and has been re-established. Snapshot was rebuilt; if your bashrc has changed since the connection started, the new state takes effect from this point.`
+- Bash 超时现在使用 `channel.close()`（通过 channel 关闭发送 SIGHUP），而非通过 PTY 发送 Ctrl-C。超时前收集到的部分 stdout 会包含在错误输出中。
+
 ## [0.1.1] - 未发布
 
 ### 变更

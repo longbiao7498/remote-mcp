@@ -19,31 +19,34 @@ You need Claude Code to operate on two or three different servers in the same se
    ```yaml
    hosts:
      prod:
-       hostname: 192.168.1.100
-       user: ubuntu
+       hostname: prod.example.com
+       user: deploy
        key_path: ~/.ssh/id_ed25519
-
-     gpu:
-       hostname: 10.0.0.60
-       user: longbiao
-       key_path: ~/.ssh/id_ed25519
+       cwd: /opt/myapp
 
      staging:
-       hostname: 10.0.0.70
-       user: ubuntu
+       hostname: staging.example.com
+       user: deploy
        key_path: ~/.ssh/id_ed25519
+       cwd: ~/work/staging
+
+     gpu:
+       hostname: gpu.cluster.example.com
+       user: researcher
+       key_path: ~/.ssh/id_ed25519
+       cwd: ~/scratch/current-experiment
 
    default_host: prod
    ```
 
-   Each top-level key under `hosts:` becomes the host name you pass to `--host`.
+   Each top-level key under `hosts:` becomes the host name you pass to `--host`. The optional `cwd` field anchors relative paths in all tools — `Read("config.yaml")` becomes `<cwd>/config.yaml`. Omit it to default to the remote `$HOME`. Accepted formats: `/absolute/path`, `~`, or `~/subpath`; tilde is expanded at connect time and existence is verified via SFTP stat (bad path → startup error).
 
 2. **Register each host as a separate MCP server**
 
    ```bash
    claude mcp add --scope user remote-prod    -- python -m remote_mcp --host prod
-   claude mcp add --scope user remote-gpu     -- python -m remote_mcp --host gpu
    claude mcp add --scope user remote-staging -- python -m remote_mcp --host staging
+   claude mcp add --scope user remote-gpu     -- python -m remote_mcp --host gpu
    ```
 
    **Each line has two tokens you choose and a lot of fixed CLI syntax.** Separating them:
