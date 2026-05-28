@@ -53,15 +53,47 @@ async def call_tool(name: str, arguments: dict):
     else:
         result = _with_retry(lambda: _raw_dispatch(name, arguments))
 
-    # Reconnect WARNING prefix (only on successful reconnect, spec §5.6)
     prefix = ""
-    if _conn is not None and _conn.check_and_clear_reconnect_flag():
-        prefix = (
-            f"[WARNING] SSH connection to {_conn.config.name} was lost "
-            f"and has been re-established. Snapshot was rebuilt; if your "
-            f"bashrc has changed since the connection started, the new "
-            f"state takes effect from this point.\n\n"
+
+    # bug #4 fix: startup snapshot failure (independent of reconnect).
+    # Shown once on the first call after startup failure.
+    if _conn is not None and _conn._startup_warning_pending:
+        prefix += (
+            f"[WARNING] Session-start snapshot capture failed "
+            f"({_conn._snapshot_error}). Bash calls will run without the "
+            f"user's PATH/aliases, and will start in $HOME instead of the "
+            f"configured cwd ({_conn.config.cwd}).\n\n"
         )
+        _conn._startup_warning_pending = False
+
+    # Reconnect WARNING — three variants depending on snapshot state.
+    if _conn is not None and _conn.check_and_clear_reconnect_flag():
+        if not _conn._snapshot_reuploaded:
+            # Case A: file still present, nothing changed
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established.\n\n"
+            )
+        elif _conn._snapshot_error is None:
+            # Case B: re-upload succeeded
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established. The remote snapshot file was "
+                f"missing (likely cleaned externally) and has been re-uploaded "
+                f"from the local cache; the environment captured at session "
+                f"start has been preserved.\n\n"
+            )
+        else:
+            # Case C: re-upload failed
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established, but the remote snapshot file "
+                f"was missing AND re-upload failed ({_conn._snapshot_error}). "
+                f"Subsequent Bash calls will run without the user's "
+                f"PATH/aliases, and will start in $HOME instead of the "
+                f"configured cwd ({_conn.config.cwd}).\n\n"
+            )
+        _conn._snapshot_reuploaded = False
 
     # Unified suffix — append to every tool output (success + error)
     suffix = ""

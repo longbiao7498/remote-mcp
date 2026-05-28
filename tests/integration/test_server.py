@@ -146,9 +146,9 @@ def test_call_tool_reconnect_warning_simplified(runtime_config, sshd_kill_and_re
             "pattern": "*", "path": "/tmp",
         }))
         text = result[0].text
-        assert "[WARNING] SSH connection to test was lost and has been re-established" in text
-        assert "Snapshot was rebuilt" in text
-        # New simplified text — NOT containing the old "shell state was reset" phrase
+        assert "[WARNING] SSH connection to test was lost and has been re-established." in text
+        # Case A text — does NOT mention snapshot or re-upload
+        assert "Snapshot was rebuilt" not in text
         assert "shell state was reset" not in text
         assert "working directory is now $HOME" not in text
     finally:
