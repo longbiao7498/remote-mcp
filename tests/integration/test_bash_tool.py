@@ -58,8 +58,30 @@ def test_bash_foreground_output_cap(conn):
 
 def test_bash_foreground_timeout(conn):
     out = bash_tool.bash(conn, "sleep 100", timeout=2)
-    assert out.startswith("Error: Command timed out")
+    # Error message format: "Error: Command timed out after Ns on <host>"
+    assert "Error: Command timed out after 2" in out
     assert "on test" in out
+
+
+def test_bash_foreground_timeout_preserves_partial_output(conn):
+    out = bash_tool.bash(conn, "echo START; sleep 100", timeout=2)
+    # Spec §5.4: partial output must survive timeout
+    assert "START" in out
+    assert "Error: Command timed out" in out
+
+
+def test_bash_foreground_stdin_is_devnull(conn):
+    # `cat` with no args reads stdin → without /dev/null it would hang forever
+    out = bash_tool.bash(conn, "cat", timeout=5)
+    # Should return immediately (EOF on stdin)
+    assert "Error: Command timed out" not in out
+
+
+def test_bash_foreground_snapshot_loads_path(conn):
+    # snapshot includes user PATH, so `which bash` should find a path that
+    # at minimum is non-empty
+    out = bash_tool.bash(conn, "which bash")
+    assert "/bash" in out
 
 
 import re
