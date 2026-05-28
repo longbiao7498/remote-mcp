@@ -156,14 +156,19 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
 def _bash_background(conn: SSHConnection, command: str) -> str:
     """Per-call exec; launches setsid+nohup so it survives channel close.
 
+    bug #3 (v0.2.2): writes PID to /tmp/rmcp-bg-<uuid>.pid before echoing
+    BG_PID. If the response to this exec is lost (channel dies mid-call),
+    the agent can still recover PIDs via `cat /tmp/rmcp-bg-*.pid` because
+    the remote pidfile was written before the echo that would have been lost.
+
     Sources the snapshot inside the background bash so the configured cwd
     (cd <cwd> at the end of the snapshot) and user PATH/aliases are in
     effect for the background command. Matches foreground behavior.
     """
     bg_uuid = uuid.uuid4().hex[:12]
     log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
+    pidfile_path = f"/tmp/rmcp-bg-{bg_uuid}.pid"
 
-    # Build the inner bash command: source snapshot (if available) then run user command
     if conn._snapshot_path:
         inner = (
             f"source {shlex.quote(conn._snapshot_path)} 2>/dev/null || true; "
@@ -173,14 +178,16 @@ def _bash_background(conn: SSHConnection, command: str) -> str:
         inner = command
     quoted_inner = shlex.quote(inner)
     quoted_log = shlex.quote(log_path)
+    quoted_pidfile = shlex.quote(pidfile_path)
 
-    # setsid: session leader so `kill -- -<pid>` kills the whole group
-    # nohup: belt-and-suspenders for SIGHUP
-    # </dev/null on outer bash: detach background from our session's stdin
-    # subshell-with-echo captures $! reliably
+    # bug #3: write PID to pidfile BEFORE echoing BG_PID — if echo response
+    # is lost, agent can find the PID via `cat /tmp/rmcp-bg-*.pid`.
     wrap = (
         f"( setsid nohup bash --noprofile --norc -c {quoted_inner} "
-        f"> {quoted_log} 2>&1 </dev/null & echo \"BG_PID=$!\" )"
+        f"> {quoted_log} 2>&1 </dev/null & "
+        f"PID=$!; "
+        f"echo $PID > {quoted_pidfile}; "
+        f"echo \"BG_PID=$PID\" )"
     )
     client = conn._client
     if client is None:
@@ -194,14 +201,20 @@ def _bash_background(conn: SSHConnection, command: str) -> str:
         pass
     if exit_code != 0:
         return (
-            f"Error: failed to launch background task on {conn.config.name}. "
-            f"Output: {output[:500]}"
+            f"Error: background launch on {conn.config.name} may have started "
+            f"but the response was lost. Inspect /tmp/rmcp-bg-*.pid on remote "
+            f"to recover PIDs of any orphan processes "
+            f"(use `cat /tmp/rmcp-bg-*.pid` then `kill -0 <pid>` to filter "
+            f"live ones). Launch output: {output[:500]}"
         )
     m = re.search(r"BG_PID=(\d+)", output)
     if not m:
         return (
-            f"Error: failed to start background task on {conn.config.name}. "
-            f"Output: {output[:500]}"
+            f"Error: background launch on {conn.config.name} may have started "
+            f"but the response was lost. Inspect /tmp/rmcp-bg-*.pid on remote "
+            f"to recover PIDs of any orphan processes "
+            f"(use `cat /tmp/rmcp-bg-*.pid` then `kill -0 <pid>` to filter "
+            f"live ones). Launch output: {output[:500]}"
         )
     pid = m.group(1)
     return (
