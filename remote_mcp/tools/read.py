@@ -2,6 +2,7 @@
 import shlex
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def read(conn: SSHConnection, file_path: str,
@@ -35,6 +36,11 @@ def read(conn: SSHConnection, file_path: str,
         return f"Error: offset must be >= 1, got {offset}"
     if limit < 1:
         return f"Error: limit must be >= 1, got {limit}"
+
+    try:
+        file_path = resolve_path(file_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
 
     end = offset + limit - 1
     # sed -n '<start>,<end>p; <end+1>q' file

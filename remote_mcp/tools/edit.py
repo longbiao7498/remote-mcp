@@ -1,5 +1,6 @@
 """Edit tool. See spec §5.3.3."""
 from ..connection import SSHConnection
+from ..paths import resolve_path
 
 
 def _match_line_numbers(content: str, old_string: str, cap: int = 10) -> str:
@@ -75,6 +76,11 @@ def edit(conn: SSHConnection, file_path: str,
         capped at the first 10; if more, suffix is "... +K more".
         Errors leave the file unchanged.
     """
+    try:
+        file_path = resolve_path(file_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
+
     sftp = conn.get_sftp()
     try:
         with sftp.file(file_path, "r") as f:

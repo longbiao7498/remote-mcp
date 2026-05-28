@@ -2,6 +2,7 @@
 from typing import List, Dict, Tuple, Optional
 
 from ..connection import SSHConnection
+from ..paths import resolve_path
 from .edit import _match_line_numbers
 
 
@@ -75,6 +76,12 @@ def multi_edit(conn: SSHConnection, file_path: str,
     """
     if not edits:
         return "Error: edits list is empty"
+
+    try:
+        file_path = resolve_path(file_path, conn.config.cwd)
+    except ValueError as e:
+        return f"Error: {e}"
+
     sftp = conn.get_sftp()
     try:
         with sftp.file(file_path, "r") as f:
