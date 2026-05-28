@@ -30,6 +30,8 @@ app = Server("remote-mcp")
 _conn: Optional[SSHConnection] = None
 _root_config: Optional[RootConfig] = None
 
+NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash"})
+
 
 @app.list_tools()
 async def list_tools():
@@ -45,8 +47,11 @@ async def list_tools():
 async def call_tool(name: str, arguments: dict):
     global _conn, _root_config
 
-    # ALL tools dispatch through _with_retry per spec §9.
-    result = _with_retry(lambda: _raw_dispatch(name, arguments))
+    # bug #1 fix: NO_RETRY_TOOLS skip auto-retry to avoid false negatives.
+    if name in NO_RETRY_TOOLS:
+        result = _with_reconnect_only(lambda: _raw_dispatch(name, arguments))
+    else:
+        result = _with_retry(lambda: _raw_dispatch(name, arguments))
 
     # Reconnect WARNING prefix (only on successful reconnect, spec §5.6)
     prefix = ""
@@ -96,6 +101,26 @@ def _raw_dispatch(name: str, args: dict) -> str:
     if name == "RemoteInfo":
         return remote_info_tool.remote_info(_conn, **args)
     return f"Error: unknown tool: {name}"
+
+
+def _with_reconnect_only(call):
+    """For NO_RETRY_TOOLS (spec §5.1): catch SSH-layer exceptions, trigger a
+    best-effort reconnect so future calls work, but DO NOT re-execute the
+    tool call. Original error is returned as Error: <type>: <message>.
+
+    Rationale: Edit/MultiEdit are read-modify-write and re-executing produces
+    bug #1 (false-negative when first write actually succeeded). Bash is
+    state-dependent — only the agent knows whether re-running is safe.
+    """
+    import paramiko
+    try:
+        return call()
+    except (paramiko.SSHException, EOFError, OSError) as e:
+        try:
+            _conn._do_reconnect()
+        except Exception:
+            pass  # reconnect failure does not change what we return to agent
+        return f"Error: {type(e).__name__}: {e}"
 
 
 def _with_retry(call):
