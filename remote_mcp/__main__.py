@@ -23,13 +23,23 @@ def cli() -> None:
         "--test", action="store_true",
         help="Connect, smoke-test, then exit (no stdio loop)",
     )
+    parser.add_argument(
+        "--cwd", default=None,
+        help="Remote working directory (absolute path or starting with ~/). "
+             "Overrides hosts.<host>.cwd from config.yaml. "
+             "Default: remote $HOME.",
+    )
     args = parser.parse_args()
 
+    # Load config and apply --cwd override (shared by --test and main paths)
+    from .config import load_config
+    root = load_config(args.config)
+    host_cfg = root.hosts[args.host]
+    if args.cwd is not None:
+        host_cfg.cwd = args.cwd
+
     if args.test:
-        from .config import load_config
         from .connection import SSHConnection
-        root = load_config(args.config)
-        host_cfg = root.hosts[args.host]
         jump_cfg = root.hosts.get(host_cfg.jump_host) if host_cfg.jump_host else None
         conn = SSHConnection(host_cfg, jump_config=jump_cfg)
         conn.connect()
@@ -43,8 +53,9 @@ def cli() -> None:
                 sys.exit(1)
         finally:
             conn.close()
+        return
 
-    asyncio.run(server_main(args.host, args.config))
+    asyncio.run(server_main(args.host, args.config, cwd_override=args.cwd))
 
 
 if __name__ == "__main__":

@@ -111,10 +111,12 @@ def _with_retry(call):
             return f"Error: {e3}"
 
 
-async def main(host_name: str, config_path: str) -> None:
+async def main(host_name: str, config_path: str, cwd_override: Optional[str] = None) -> None:
     global _conn, _root_config
     _root_config = load_config(config_path)
     host_cfg = _root_config.hosts[host_name]
+    if cwd_override is not None:
+        host_cfg.cwd = cwd_override
     jump_cfg = None
     if host_cfg.jump_host:
         jump_cfg = _root_config.hosts[host_cfg.jump_host]
