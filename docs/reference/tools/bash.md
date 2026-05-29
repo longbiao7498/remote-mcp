@@ -84,7 +84,7 @@ To force stop:      Bash("kill -KILL -- -<pid>")
 | Trigger | Returned string |
 |---------|-----------------|
 | Foreground command times out | `Error: Command timed out after <timeout>s on <name>` |
-| Background launch does not emit `BG_PID=<n>` | `Error: failed to start background task on <name>. Output: <first 500 chars of output>` |
+| Background launch does not emit `BG_PID=<n>`, or response was lost | `Error: background launch on <name> may have started but the response was lost. Inspect /tmp/rmcp-bg-*.pid on remote to recover PIDs of any orphan processes (use \`cat /tmp/rmcp-bg-*.pid\` then \`kill -0 <pid>\` to filter live ones). Launch output: <first 500 chars of output>` |
 
 ## Behavior notes
 

@@ -69,7 +69,6 @@ Per-path failures are not `"Error: ..."` strings — they are reported inline wi
 | Trigger | Returned string |
 |---------|-----------------|
 | Foreground command exceeds timeout | `Error: Command timed out after <timeout>s on <host>` |
-| Background launch succeeds but `BG_PID=<n>` not found in output | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 | v0.2.2: SSH-layer failure mid-operation | `Error: <ExceptionType>: <message>` (e.g. `Error: SSHException: Channel closed.`) — NOT auto-retried; agent should verify remote state (via Read or Bash queries) before retrying, especially for state-changing commands. The next tool call will auto-reconnect. |
 | v0.2.2: background command may have started but response was lost | `Error: background launch on <host> may have started but the response was lost...` — bug #3: the remote process may already be running. Use `Bash("cat /tmp/rmcp-bg-*.pid")` then `kill -0` to find live orphan PIDs. |
 

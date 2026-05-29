@@ -69,7 +69,6 @@
 | 触发条件 | 返回字符串 |
 |---------|-----------|
 | 前台命令超时 | `Error: Command timed out after <timeout>s on <host>` |
-| 后台启动成功但输出中未找到 `BG_PID=<n>` | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
 | v0.2.2：操作过程中发生 SSH 层故障 | `Error: <ExceptionType>: <message>`（例如 `Error: SSHException: Channel closed.`）——**不会**自动重试；agent 应在重试前验证远程状态（通过 Read 或 Bash 查询），对于会改变状态的命令尤为重要。下一次工具调用将自动重连。 |
 | v0.2.2：后台命令可能已启动但响应丢失 | `Error: background launch on <host> may have started but the response was lost...` — bug #3：远程进程可能已在运行。使用 `Bash("cat /tmp/rmcp-bg-*.pid")` 再执行 `kill -0` 查找残留的孤儿 PID。 |
 
