@@ -61,3 +61,19 @@ remote-mcp ships a `Feedback` tool that lets you (the agent) record issues you h
 - Summary in one line; details for context
 
 **Privacy**: Writes to local `~/.local/share/remote-mcp/feedback.jsonl`. Not transmitted anywhere.
+
+## remote-mcp v0.2.2 behavior (network failures)
+
+- **`Error: SSH channel ... closed unexpectedly`**: the remote command's execution state is undetermined. Idempotent reads (`cat`, `ls`, `pwd`, `grep`) can be retried directly. Side-effect commands (`rm`, `mv`, `git push`, migrations) need to be verified first (use `Read` / `Bash("ls ...")`) before deciding to retry. Long tasks (`sleep`, training scripts) may still be running — check with `Bash("pgrep -af <command snippet>")`.
+
+- **`Error: SSH connection ... reconnect failed`**: the network really is down. Wait a few seconds before issuing any further calls; or call `RemoteInfo` (does not use the network) as a cheap "are we back" probe before retrying the failed action.
+
+- **`Error: Edit ... old_string not found`** combined with a recently-seen `[WARNING] SSH connection was lost`: the previous Edit may actually have succeeded — Edit / MultiEdit are explicitly not auto-retried (bug #1 from v0.2.2 spec). Read the file before deciding to re-Edit. If the file already shows the intended state, do NOT re-issue the Edit.
+
+- **`[WARNING] ... snapshot ... missing AND re-upload failed`**: subsequent Bash calls will NOT load the user's PATH or aliases, and will start in `$HOME` rather than the configured cwd. Use absolute paths (e.g. `/home/user/miniconda3/bin/conda` instead of `conda`) and avoid relying on user aliases until the next MCP server restart.
+
+- **Background task launch failure with response lost**: the remote process may have started anyway. Recover orphan PIDs with:
+  ```bash
+  Bash("for pf in /tmp/rmcp-bg-*.pid 2>/dev/null; do pid=$(cat $pf 2>/dev/null); kill -0 $pid 2>/dev/null && echo \"$pid alive ($pf)\"; done")
+  ```
+  Each live PID corresponds to a `/tmp/rmcp-bg-<uuid>.log` you can `Read` for output.

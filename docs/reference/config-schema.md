@@ -33,6 +33,7 @@ Each key under `hosts` is the logical host name (used in `--host` and in `[WARNI
 | `read_size_cap` | integer | No | `262144` | Maximum bytes of output returned by Read and MultiRead before truncation (default 256 KB). |
 | `bash_output_cap` | integer | No | `102400` | Maximum bytes of output returned by Bash before truncation (default 100 KB). |
 | `transfer_size_cap` | int | No | 104857600 (100 MB) | Maximum file size in bytes that `Upload` or `Download` will transfer. Files larger than this return an `Error:` string that includes a ready-to-paste `Bash + scp` command. Raise this if you need larger transfers and don't want to switch to scp. |
+| `op_timeout_default` | integer | No | 60 | Per-operation idle timeout (seconds) applied to all SFTP and `exec` channel I/O. If no bytes are exchanged for this long, paramiko raises `socket.timeout` and the call surfaces as an SSH-layer error (`_with_retry` for most tools triggers reconnect+retry; `_with_reconnect_only` for Edit/MultiEdit/Bash triggers reconnect but returns the error to the agent). This is an idle timeout, NOT a wall-clock cap — a large file transfer that streams bytes continuously will not be killed. |
 
 ## Minimal example
 

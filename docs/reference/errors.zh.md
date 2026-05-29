@@ -32,6 +32,7 @@
 | 文件中未找到 `old_string`（零次匹配，`replace_all=False`） | `Error: old_string not found in <file_path>` |
 | 文件中未找到 `old_string`（零次匹配，`replace_all=True`） | `Error: old_string not found in <file_path>` |
 | `old_string` 出现多次且 `replace_all=False` | `Error: old_string found <N> times in <file_path> (lines <L1, L2, ...>). Provide more context to match uniquely, or set replace_all=true to replace all.` |
+| v0.2.2：操作过程中发生 SSH 层故障 | `Error: <ExceptionType>: <message>`（例如 `Error: SSHException: Channel closed.`）——**不会**自动重试；agent 应在重试前验证远程状态（通过 Read 或 Bash 查询），对于会改变状态的命令尤为重要。下一次工具调用将自动重连。 |
 
 ### MultiEdit
 
@@ -42,6 +43,7 @@
 | 第 N 条编辑的 `old_string` 未找到（零次匹配，`replace_all=False`） | `Error: edit #<N>: old_string not found` |
 | 第 N 条编辑的 `old_string` 未找到（零次匹配，`replace_all=True`） | `Error: edit #<N>: old_string not found` |
 | 第 N 条编辑的 `old_string` 出现多次且 `replace_all=False` | `Error: edit #<N>: old_string found <M> times (lines <L1, L2, ...>). Provide more context or set replace_all=true.` |
+| v0.2.2：操作过程中发生 SSH 层故障 | `Error: <ExceptionType>: <message>`（例如 `Error: SSHException: Channel closed.`）——**不会**自动重试；agent 应在重试前验证远程状态（通过 Read 或 Bash 查询），对于会改变状态的命令尤为重要。下一次工具调用将自动重连。 |
 
 ### MultiRead
 
@@ -67,7 +69,8 @@
 | 触发条件 | 返回字符串 |
 |---------|-----------|
 | 前台命令超时 | `Error: Command timed out after <timeout>s on <host>` |
-| 后台启动成功但输出中未找到 `BG_PID=<n>` | `Error: failed to start background task on <host>. Output: <first 500 chars of output>` |
+| v0.2.2：操作过程中发生 SSH 层故障 | `Error: <ExceptionType>: <message>`（例如 `Error: SSHException: Channel closed.`）——**不会**自动重试；agent 应在重试前验证远程状态（通过 Read 或 Bash 查询），对于会改变状态的命令尤为重要。下一次工具调用将自动重连。 |
+| v0.2.2：后台命令可能已启动但响应丢失 | `Error: background launch on <host> may have started but the response was lost...` — bug #3：远程进程可能已在运行。使用 `Bash("cat /tmp/rmcp-bg-*.pid")` 再执行 `kill -0` 查找残留的孤儿 PID。 |
 
 ### Glob
 
@@ -137,6 +140,9 @@ RemoteInfo 不会失败——它返回内存中的配置。无错误字符串。
 | 启动时 `--cwd` / `hosts.<name>.cwd` 的值不是绝对路径且不以 `~/` 开头 | `Error: cwd must be an absolute path or start with '~/' (got: '<value>')` |
 | 启动时对配置的 cwd 进行 SFTP stat，提示"不存在" | `configured cwd '<path>' does not exist on host '<host>'` |
 | 启动时对配置的 cwd 进行 SFTP stat，发现目标不是目录 | `configured cwd '<path>' exists on host '<host>' but is not a directory` |
+| v0.2.2：快照文件被外部删除，重新上传成功 | `[WARNING] ... snapshot file was missing ... has been re-uploaded` — 快照文件被外部删除（如用户清空了 `~/.cache/`）；已从本地缓存重新上传。会话启动时捕获的环境得以保留。无需 agent 操作。 |
+| v0.2.2：快照文件丢失且重新上传也失败 | `[WARNING] ... re-upload failed ... will run without the user's PATH/aliases` — 直到下次 MCP 重启前，Bash 调用将缺少用户环境。请使用绝对路径。 |
+| v0.2.2：MCP 启动时初始快照捕获失败 | `[WARNING] Session-start snapshot capture failed ...` — 效果与上述重传失败相同：Bash 在下次 MCP 重启前将不带用户环境运行。 |
 
 ## 横切说明
 

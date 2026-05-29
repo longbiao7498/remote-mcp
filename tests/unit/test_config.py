@@ -114,3 +114,21 @@ def test_load_config_with_cwd(tmp_path: Path):
     root = load_config(str(cfg))
     assert root.hosts["prod"].cwd == "/opt/myapp"
     assert root.hosts["home"].cwd == "~/projects/myapp"
+
+
+def test_host_config_op_timeout_default_is_60():
+    cfg = HostConfig(name="x", hostname="h", user="u")
+    assert cfg.op_timeout_default == 60
+
+
+def test_load_config_with_op_timeout_default(tmp_path: Path):
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text(textwrap.dedent("""
+        hosts:
+          prod:
+            hostname: 10.0.0.1
+            user: ubuntu
+            op_timeout_default: 30
+    """).strip())
+    root = load_config(str(cfg))
+    assert root.hosts["prod"].op_timeout_default == 30

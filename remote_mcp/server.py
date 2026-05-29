@@ -30,6 +30,8 @@ app = Server("remote-mcp")
 _conn: Optional[SSHConnection] = None
 _root_config: Optional[RootConfig] = None
 
+NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash"})
+
 
 @app.list_tools()
 async def list_tools():
@@ -45,18 +47,53 @@ async def list_tools():
 async def call_tool(name: str, arguments: dict):
     global _conn, _root_config
 
-    # ALL tools dispatch through _with_retry per spec §9.
-    result = _with_retry(lambda: _raw_dispatch(name, arguments))
+    # bug #1 fix: NO_RETRY_TOOLS skip auto-retry to avoid false negatives.
+    if name in NO_RETRY_TOOLS:
+        result = _with_reconnect_only(lambda: _raw_dispatch(name, arguments))
+    else:
+        result = _with_retry(lambda: _raw_dispatch(name, arguments))
 
-    # Reconnect WARNING prefix (only on successful reconnect, spec §5.6)
     prefix = ""
-    if _conn is not None and _conn.check_and_clear_reconnect_flag():
-        prefix = (
-            f"[WARNING] SSH connection to {_conn.config.name} was lost "
-            f"and has been re-established. Snapshot was rebuilt; if your "
-            f"bashrc has changed since the connection started, the new "
-            f"state takes effect from this point.\n\n"
+
+    # bug #4 fix: startup snapshot failure (independent of reconnect).
+    # Shown once on the first call after startup failure.
+    if _conn is not None and _conn._startup_warning_pending:
+        prefix += (
+            f"[WARNING] Session-start snapshot capture failed "
+            f"({_conn._snapshot_error}). Bash calls will run without the "
+            f"user's PATH/aliases, and will start in $HOME instead of the "
+            f"configured cwd ({_conn.config.cwd}).\n\n"
         )
+        _conn._startup_warning_pending = False
+
+    # Reconnect WARNING — three variants depending on snapshot state.
+    if _conn is not None and _conn.check_and_clear_reconnect_flag():
+        if not _conn._snapshot_reuploaded:
+            # Case A: file still present, nothing changed
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established.\n\n"
+            )
+        elif _conn._snapshot_error is None:
+            # Case B: re-upload succeeded
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established. The remote snapshot file was "
+                f"missing (likely cleaned externally) and has been re-uploaded "
+                f"from the local cache; the environment captured at session "
+                f"start has been preserved.\n\n"
+            )
+        else:
+            # Case C: re-upload failed
+            prefix += (
+                f"[WARNING] SSH connection to {_conn.config.name} was lost "
+                f"and has been re-established, but the remote snapshot file "
+                f"was missing AND re-upload failed ({_conn._snapshot_error}). "
+                f"Subsequent Bash calls will run without the user's "
+                f"PATH/aliases, and will start in $HOME instead of the "
+                f"configured cwd ({_conn.config.cwd}).\n\n"
+            )
+        _conn._snapshot_reuploaded = False
 
     # Unified suffix — append to every tool output (success + error)
     suffix = ""
@@ -98,6 +135,26 @@ def _raw_dispatch(name: str, args: dict) -> str:
     return f"Error: unknown tool: {name}"
 
 
+def _with_reconnect_only(call):
+    """For NO_RETRY_TOOLS (spec §5.1): catch SSH-layer exceptions, trigger a
+    best-effort reconnect so future calls work, but DO NOT re-execute the
+    tool call. Original error is returned as Error: <type>: <message>.
+
+    Rationale: Edit/MultiEdit are read-modify-write and re-executing produces
+    bug #1 (false-negative when first write actually succeeded). Bash is
+    state-dependent — only the agent knows whether re-running is safe.
+    """
+    import paramiko
+    try:
+        return call()
+    except (paramiko.SSHException, EOFError, OSError) as e:
+        try:
+            _conn._do_reconnect()
+        except Exception:
+            pass  # reconnect failure does not change what we return to agent
+        return f"Error: {type(e).__name__}: {e}"
+
+
 def _with_retry(call):
     """On SSH-level failure, reconnect once then retry. Spec §9."""
     import paramiko
@@ -128,6 +185,9 @@ async def main(host_name: str, config_path: str, cwd_override: Optional[str] = N
         jump_cfg = _root_config.hosts[host_cfg.jump_host]
     _conn = SSHConnection(host_cfg, jump_config=jump_cfg)
     _conn.connect()
+    _conn._capture_snapshot()
+    if _conn._snapshot_error is not None:
+        _conn._startup_warning_pending = True
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(
@@ -146,6 +206,9 @@ def _init_for_test(root: RootConfig, host_name: str) -> None:
     jump_cfg = root.hosts.get(host_cfg.jump_host) if host_cfg.jump_host else None
     _conn = SSHConnection(host_cfg, jump_config=jump_cfg)
     _conn.connect()
+    _conn._capture_snapshot()
+    if _conn._snapshot_error is not None:
+        _conn._startup_warning_pending = True
 
 
 def _teardown_for_test() -> None:
