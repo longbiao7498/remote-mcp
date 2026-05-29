@@ -101,3 +101,42 @@ def sshd_kill_and_restart(sshd_container):
             except Exception:
                 pass
     return _action
+
+
+@pytest.fixture
+def flaky_proxy(sshd_container):
+    """In-process TCP proxy listening on 127.0.0.1:<ephemeral>, forwarding to
+    the real remote sshd. Tests can call drop_all/close_now/limit_bytes_from_remote
+    to simulate network anomalies without touching paramiko or remote-mcp code.
+
+    See tests/integration/flaky_proxy.py for control API.
+    """
+    from .flaky_proxy import FlakyTCPProxy
+    proxy = FlakyTCPProxy(
+        target_host=sshd_container["host"],
+        target_port=sshd_container["port"],
+    )
+    yield proxy
+    proxy.shutdown()
+
+
+@pytest.fixture
+def conn_via_proxy(flaky_proxy, ssh_key, sshd_container):
+    """SSHConnection pointed at the flaky proxy instead of the real remote.
+    Snapshot is captured at fixture init so v0.2.2 startup invariants hold."""
+    from remote_mcp.config import HostConfig
+    from remote_mcp.connection import SSHConnection
+
+    cfg = HostConfig(
+        name="proxytest",
+        hostname="127.0.0.1",
+        port=flaky_proxy.local_port,
+        user=sshd_container["user"],
+        key_path=ssh_key["private_path"],
+        connect_timeout=10.0,
+    )
+    c = SSHConnection(cfg)
+    c.connect()
+    c._capture_snapshot()
+    yield c
+    c.close()
