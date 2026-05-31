@@ -310,3 +310,43 @@ ALL_TOOL_DESCRIPTIONS = {
     "Download": DOWNLOAD_DESC,
     "RemoteInfo": REMOTEINFO_DESC,
 }
+
+JOBS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Job name to query (single-task mode). Mutually exclusive with id.",
+        },
+        "id": {
+            "type": "integer",
+            "description": "Job id to query (single-task mode). Mutually exclusive with name.",
+        },
+        "filter": {
+            "type": "string",
+            "enum": ["stopped_unprocessed", "stuck_kill", "zombies"],
+            "description": (
+                "List-mode filter. stopped_unprocessed: state ∈ {stopped, killed} and not archived "
+                "(agent's cron-poll target for tasks that finished). "
+                "stuck_kill: state == kill_failed AND kill_attempts >= 3 AND not archived "
+                "(tasks resisting your kill — review attempts and decide on JobArchive(as_zombie=True)). "
+                "zombies: archived with zombie=true (tasks you gave up on; processes may still be "
+                "running on remote outside panel management)."
+            ),
+        },
+    },
+}
+
+JOBS_DESC = (
+    "Query the background task panel. Two modes:\n"
+    "- List mode (no name/id): Jobs() lists all active tasks. Optional "
+    "filter='stopped_unprocessed'|'stuck_kill'|'zombies'.\n"
+    "- Single mode: Jobs(name=X) or Jobs(id=N) returns full detail including "
+    "command, kill_attempts, archived_at, and (if attached) status_script_output.\n"
+    "Jobs updates the cached state in panel metadata as a side effect — always "
+    "call Jobs before JobArchive to ensure the cache reflects the current observation. "
+    "Retries are safe (state writeback is idempotent)."
+)
+
+ALL_TOOL_SCHEMAS["Jobs"] = JOBS_SCHEMA
+ALL_TOOL_DESCRIPTIONS["Jobs"] = JOBS_DESC
