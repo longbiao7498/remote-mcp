@@ -1,4 +1,4 @@
-"""JSON schemas for all 13 tools. See spec §6."""
+"""JSON schemas for all 17 tools. See spec §6."""
 
 READ_SCHEMA = {
     "type": "object",
@@ -389,3 +389,25 @@ JOBKILL_DESC = (
 )
 ALL_TOOL_SCHEMAS["JobKill"] = JOBKILL_SCHEMA
 ALL_TOOL_DESCRIPTIONS["JobKill"] = JOBKILL_DESC
+
+JOBARCHIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "as_zombie": {
+            "type": "boolean",
+            "default": False,
+            "description": "Only meaningful when archiving a kill_failed task. Setting True acknowledges 'I give up trying to kill this; the process keeps running on remote but the panel forgets it'. Archived task gets zombie=true and counts toward host's zombie threshold.",
+        },
+    },
+}
+JOBARCHIVE_DESC = (
+    "Archive a background task. The task is moved out of the active panel "
+    "into archive/ (default for stopped/killed) or zombie/ (with "
+    "as_zombie=True, for kill_failed). Local-only operation — no SSH. "
+    "Reads cached state from meta; call Jobs first if you need to refresh. "
+    "Archive is for tasks you have processed the results of."
+)
+ALL_TOOL_SCHEMAS["JobArchive"] = JOBARCHIVE_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobArchive"] = JOBARCHIVE_DESC
