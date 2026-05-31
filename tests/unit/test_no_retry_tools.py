@@ -8,7 +8,11 @@ from remote_mcp import server as srv
 
 
 def test_no_retry_tools_constant():
-    assert srv.NO_RETRY_TOOLS == frozenset({"Edit", "MultiEdit", "Bash"})
+    # v0.3.0 extended NO_RETRY_TOOLS with panel mutation tools (spec §2 table)
+    assert srv.NO_RETRY_TOOLS == frozenset({
+        "Edit", "MultiEdit", "Bash",
+        "JobKill", "JobArchive", "JobScript",
+    })
 
 
 def test_with_reconnect_only_returns_error_string_on_ssh_failure():

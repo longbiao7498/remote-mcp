@@ -1,4 +1,4 @@
-"""JSON schemas for all 13 tools. See spec §6."""
+"""JSON schemas for all 17 tools. See spec §6."""
 
 READ_SCHEMA = {
     "type": "object",
@@ -86,9 +86,21 @@ BASH_SCHEMA = {
     "type": "object",
     "properties": {
         "command": {"type": "string"},
-        "description": {"type": "string", "default": ""},
+        "description": {
+            "type": "string",
+            "default": "",
+            "description": "Brief description of the command (CC native compat). When run_in_background=true, this is also stored as the task description in the panel (max 500 chars; longer is truncated with a notice in the return).",
+        },
         "timeout": {"type": "number", "default": 120},
         "run_in_background": {"type": "boolean", "default": False},
+        "log_path": {
+            "type": "string",
+            "description": "Optional. Absolute remote path for stdout+stderr redirection (background only). Defaults to ~/.cache/remote-mcp-<sid>-<id>.log (alongside pid file; persists across reboots unlike /tmp). Parent dirs auto-created via remote mkdir -p (one Bash exec). If a non-directory file exists at the parent path, Error returned and task not launched. If the target log file exists, it is overwritten (shell '>' semantics).",
+        },
+        "name": {
+            "type": "string",
+            "description": "Optional. Job alias for panel reference (background only). Defaults to 'bg-<uuid12>'. Must be unique among active (non-archived) jobs in the current session+host — collision returns Error. Pattern: [A-Za-z0-9_.-]+ length 1-64.",
+        },
     },
     "required": ["command"],
 }
@@ -202,10 +214,52 @@ FILESTAT_DESC = (
     "Use this before Read to avoid accidentally downloading huge files. Accepts a path or a list of paths."
 )
 BASH_DESC = (
-    "Execute a shell command on the remote server. Shell state (cwd, env vars) persists across foreground calls. "
-    "Command output is transferred over SSH. Batch related commands with '&&'; pipe large outputs through head/tail. "
-    "For long-running commands (build/test/install) set run_in_background=true — returns immediately with PID and log path; "
-    "poll output via Read on the log; clean up with the printed kill command."
+    "Execute a shell command on the remote server.\n"
+    "\n"
+    "Shell state (cwd, env vars, sourced venvs) does NOT persist across calls — "
+    "each invocation is a fresh `bash --noprofile --norc` process. The configured "
+    "cwd and a snapshot of env/aliases/functions (captured once at MCP startup) "
+    "are sourced before your command runs. Chain state inline: `cd dir && cmd`, "
+    "`VAR=v cmd`, `venv/bin/python script.py`.\n"
+    "\n"
+    "Foreground (default) actual wrap:\n"
+    "  bash --noprofile --norc -c '<your command>' </dev/null\n"
+    "The `</dev/null` makes stdin-reading commands (cat, srun, python REPL) "
+    "return immediately instead of hanging.\n"
+    "\n"
+    "Background (run_in_background=true) actual wrap:\n"
+    "  ( setsid nohup bash --noprofile --norc -c '<your command>' \\\n"
+    "    > <log_path> 2>&1 </dev/null & \\\n"
+    "    echo $! > ~/.cache/remote-mcp-<sid>-<id>-pid; echo BG_PID=$! )\n"
+    "setsid + nohup + </dev/null + & together guarantee survival across SSH "
+    "disconnects and shell exits — you do NOT need to write nohup/disown yourself.\n"
+    "\n"
+    "Background returns structured fields: id, name, log_path, pid, started_at. "
+    "Optional params for background:\n"
+    "  log_path: absolute remote path for stdout/stderr (default "
+    "~/.cache/remote-mcp-<sid>-<id>.log; persists across reboots). Parent dirs "
+    "auto-created; conflict with existing non-directory file → Error.\n"
+    "  name: panel alias (default bg-<uuid12>). Must be unique among active jobs "
+    "in this session+host; collision → Error.\n"
+    "  description: panel task description (also CC native compat; max 500 chars).\n"
+    "\n"
+    "Manage background tasks with the panel tools — do NOT hand-roll pgrep/kill:\n"
+    "  Jobs() / Jobs(id=N) / Jobs(filter='stopped_unprocessed'|'stuck_kill'|'zombies')\n"
+    "  JobKill(name=X[, kill_cmd=...])\n"
+    "  JobArchive(name=X[, as_zombie=True])\n"
+    "  JobScript(name=X, script='...', timeout=N)\n"
+    "Archive is for tasks you have processed the results of. Typical flow:\n"
+    "Bash(run_in_background=True, ...) → wait → Jobs(name=X) (refresh state)\n"
+    "→ Read(log_path) (review output) → JobArchive(name=X). Archive rejects\n"
+    "running/kill_failed tasks; that's not stale-cache defense — it's a\n"
+    "reminder that you haven't processed the results yet.\n"
+    "\n"
+    "Background panel does NOT survive Claude Code restart (PPID changes →\n"
+    "new sid → old panel orphaned but tasks keep running). To recover old\n"
+    "tasks after CC restart, ls ~/.cache/remote-mcp-*-pid on remote.\n"
+    "\n"
+    "Batching tips for foreground: chain related commands with '&&'; pipe large "
+    "outputs through head/tail to stay under bash_output_cap (default 100KB)."
 )
 GLOB_DESC = (
     "Find files matching a glob pattern (server-side). "
@@ -256,3 +310,104 @@ ALL_TOOL_DESCRIPTIONS = {
     "Download": DOWNLOAD_DESC,
     "RemoteInfo": REMOTEINFO_DESC,
 }
+
+JOBS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {
+            "type": "string",
+            "description": "Job name to query (single-task mode). Mutually exclusive with id.",
+        },
+        "id": {
+            "type": "integer",
+            "description": "Job id to query (single-task mode). Mutually exclusive with name.",
+        },
+        "filter": {
+            "type": "string",
+            "enum": ["stopped_unprocessed", "stuck_kill", "zombies"],
+            "description": (
+                "List-mode filter. stopped_unprocessed: state ∈ {stopped, killed} and not archived "
+                "(agent's cron-poll target for tasks that finished). "
+                "stuck_kill: state == kill_failed AND kill_attempts >= 3 AND not archived "
+                "(tasks resisting your kill — review attempts and decide on JobArchive(as_zombie=True)). "
+                "zombies: archived with zombie=true (tasks you gave up on; processes may still be "
+                "running on remote outside panel management)."
+            ),
+        },
+    },
+}
+
+JOBS_DESC = (
+    "Query the background task panel. Two modes:\n"
+    "- List mode (no name/id): Jobs() lists all active tasks. Optional "
+    "filter='stopped_unprocessed'|'stuck_kill'|'zombies'.\n"
+    "- Single mode: Jobs(name=X) or Jobs(id=N) returns full detail including "
+    "command, kill_attempts, archived_at, and (if attached) status_script_output.\n"
+    "Jobs updates the cached state in panel metadata as a side effect — always "
+    "call Jobs before JobArchive to ensure the cache reflects the current observation. "
+    "Retries are safe (state writeback is idempotent)."
+)
+
+ALL_TOOL_SCHEMAS["Jobs"] = JOBS_SCHEMA
+ALL_TOOL_DESCRIPTIONS["Jobs"] = JOBS_DESC
+
+JOBSCRIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "script": {"type": "string", "description": "Bash script body. Stored locally + uploaded to remote cache (auto-reuploaded if missing). Pass empty string '' to clear (deletes local source only)."},
+        "timeout": {"type": "integer", "description": "Required. Seconds. Pick based on what your script does (simple pgrep+tail=5; large log=30; calling external services=60). Stored as script_timeout in meta; reused on every Jobs(name=X) call."},
+    },
+    "required": ["script", "timeout"],
+}
+JOBSCRIPT_DESC = (
+    "Attach a status script to a job. The script runs server-side on each "
+    "Jobs(name=X) single-task query and the output appears in "
+    "status_script_output. Source is stored locally; remote cache is "
+    "auto-managed. Pass script='' to clear. timeout is required — pick "
+    "based on what your script does (5-60 seconds typical)."
+)
+ALL_TOOL_SCHEMAS["JobScript"] = JOBSCRIPT_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobScript"] = JOBSCRIPT_DESC
+
+JOBKILL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "kill_cmd": {"type": "string", "description": "Optional. Full shell command to execute on remote to kill the task. Defaults to 'kill -TERM -- -<pid>' (signals the process group via setsid). Examples: Slurm 'scancel 12345'; SIGKILL 'kill -KILL -- -<pid>'; graceful 'kill -USR1 <pid>'."},
+    },
+}
+JOBKILL_DESC = (
+    "Send a kill signal to a background task. Default command is "
+    "'kill -TERM -- -<pid>'. Provide kill_cmd for runtime-specific kills "
+    "(e.g. Slurm 'scancel 12345'). JobKill is a single attempt — repeat for "
+    "retries; the panel tracks kill_attempts. After 3 failed attempts, a NOTE "
+    "suggests JobArchive(as_zombie=True). After 5 stuck-kill tasks on this "
+    "host, a WARNING recommends pausing automation."
+)
+ALL_TOOL_SCHEMAS["JobKill"] = JOBKILL_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobKill"] = JOBKILL_DESC
+
+JOBARCHIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "as_zombie": {
+            "type": "boolean",
+            "default": False,
+            "description": "Only meaningful when archiving a kill_failed task. Setting True acknowledges 'I give up trying to kill this; the process keeps running on remote but the panel forgets it'. Archived task gets zombie=true and counts toward host's zombie threshold.",
+        },
+    },
+}
+JOBARCHIVE_DESC = (
+    "Archive a background task. The task is moved out of the active panel "
+    "into archive/ (default for stopped/killed) or zombie/ (with "
+    "as_zombie=True, for kill_failed). Local-only operation — no SSH. "
+    "Reads cached state from meta; call Jobs first if you need to refresh. "
+    "Archive is for tasks you have processed the results of."
+)
+ALL_TOOL_SCHEMAS["JobArchive"] = JOBARCHIVE_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobArchive"] = JOBARCHIVE_DESC

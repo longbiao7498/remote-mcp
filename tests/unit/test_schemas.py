@@ -2,11 +2,12 @@ import json
 from remote_mcp.schemas import ALL_TOOL_SCHEMAS
 
 
-def test_all_thirteen_tools_have_schemas():
+def test_all_seventeen_tools_have_schemas():
     expected = {
         "Read", "Write", "Edit", "MultiEdit", "MultiRead", "FileStat",
         "Bash", "Glob", "Grep", "Feedback",
         "Upload", "Download", "RemoteInfo",
+        "Jobs", "JobScript", "JobKill", "JobArchive",
     }
     assert set(ALL_TOOL_SCHEMAS.keys()) == expected
 
@@ -34,3 +35,13 @@ def test_required_lists_are_correct():
 def test_schemas_are_json_serializable():
     for name, schema in ALL_TOOL_SCHEMAS.items():
         json.dumps(schema)  # must not raise
+
+
+def test_bash_schema_has_new_v030_fields():
+    from remote_mcp.schemas import BASH_SCHEMA
+    props = BASH_SCHEMA["properties"]
+    assert "log_path" in props
+    assert "name" in props
+    assert BASH_SCHEMA["required"] == ["command"]
+    # description default empty string preserved
+    assert props["description"]["default"] == ""

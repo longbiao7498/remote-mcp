@@ -1,5 +1,5 @@
 """MCP server: list_tools, call_tool, dispatch, reconnect WARNING. See spec §5.4."""
-import asyncio
+import sys
 from typing import Optional
 
 from mcp.server import Server
@@ -9,6 +9,9 @@ from mcp.types import TextContent, Tool
 from .config import RootConfig, load_config
 from .connection import SSHConnection
 from .schemas import ALL_TOOL_SCHEMAS, ALL_TOOL_DESCRIPTIONS
+from .jobs.sid import derive_sid
+from .jobs.init import init_panel
+from .jobs.paths import local_sid_host_dir
 
 from .tools import bash as bash_tool
 from .tools import edit as edit_tool
@@ -16,6 +19,10 @@ from .tools import feedback as feedback_tool
 from .tools import file_stat as file_stat_tool
 from .tools import glob as glob_tool
 from .tools import grep as grep_tool
+from .tools import jobs as jobs_module
+from .tools.job_script import job_script_tool
+from .tools.job_kill import job_kill_tool
+from .tools.job_archive import job_archive_tool
 from .tools import multi_edit as multi_edit_tool
 from .tools import multi_read as multi_read_tool
 from .tools import read as read_tool
@@ -30,7 +37,7 @@ app = Server("remote-mcp")
 _conn: Optional[SSHConnection] = None
 _root_config: Optional[RootConfig] = None
 
-NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash"})
+NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash", "JobScript", "JobKill", "JobArchive"})
 
 
 @app.list_tools()
@@ -132,6 +139,14 @@ def _raw_dispatch(name: str, args: dict) -> str:
         return download_tool.download(_conn, **args)
     if name == "RemoteInfo":
         return remote_info_tool.remote_info(_conn, **args)
+    if name == "Jobs":
+        return jobs_module.jobs_tool(_conn, **args)
+    if name == "JobScript":
+        return job_script_tool(_conn, **args)
+    if name == "JobKill":
+        return job_kill_tool(_conn, **args)
+    if name == "JobArchive":
+        return job_archive_tool(_conn, **args)
     return f"Error: unknown tool: {name}"
 
 
@@ -188,6 +203,17 @@ async def main(host_name: str, config_path: str, cwd_override: Optional[str] = N
     _conn._capture_snapshot()
     if _conn._snapshot_error is not None:
         _conn._startup_warning_pending = True
+    sid, sid_source = derive_sid()
+    try:
+        init_panel(sid, _conn.config.name)
+    except OSError as e:
+        bad_path = local_sid_host_dir(sid, _conn.config.name)
+        print(
+            f"Error: cannot init job panel at {bad_path}/: "
+            f"{e}. Check filesystem permissions / disk space.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(

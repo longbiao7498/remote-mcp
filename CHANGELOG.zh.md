@@ -6,6 +6,47 @@
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)；版本遵循
 [语义化版本](https://semver.org/spec/v2.0.0.html)。
 
+## [0.3.0] — 2026-05-31
+
+### 后台任务面板
+
+v0.3.0 引入了一流的后台任务面板：一个持久的、具名的、可查询的后台任务注册表，用于管理通过 `Bash(run_in_background=True)` 启动的后台任务。Agent 现在可以命名任务、列出状态、挂载状态脚本、kill 任务并归档——无需手写 `pgrep`/`tail`/`kill` 样板代码。设计理念与架构详见 `docs/explanation/job-panel.md`（中文版：`job-panel.zh.md`）。
+
+### 新增——四个面板工具（工具总数 13 → 17）
+
+- **`Jobs(name=X | id=N | filter=F)`** — 查询面板。列表模式返回所有活跃任务及其实时状态；单任务模式额外运行可选的状态脚本。过滤器值：`stopped_unprocessed`（已完成、待查看结果的任务）、`stuck_kill`（经过 ≥ 3 次 kill 仍存活的任务）、`zombies`（已放弃管理并归档为 zombie 的任务）。状态机：`running` / `stopped` / `killed` / `kill_failed`。终态（`stopped`、`killed`）首次确认后不再重新观察，避免 PID 复用产生误判。
+
+- **`JobKill(name=X | id=N [, kill_cmd=...])`** — 在单次打包 exec（5 秒超时）内执行一次 kill 命令并验证进程存活状态。将本次尝试记录至 `kill_attempts[]` 并更新状态。双层升级告警：L1 针对单任务 ≥ 3 次失败；L2 针对本 host ≥ 5 个 stuck 任务。
+
+- **`JobArchive(name=X | id=N [, as_zombie=True])`** — 纯本地操作（零远端调用）。将 `<id>-meta.json`（若有 `<id>-status.sh` 一同迁移）移至 `archive/`（stopped/killed 任务）或 `zombie/`（已放弃管理的 kill_failed 任务）目录。要求 state 为终态；防止归档正在运行或未确认的任务。zombie 数达到 ≥ 5 时触发升级告警。
+
+- **`JobScript(name=X | id=N, script="...", timeout=N)`** — 为任务挂载自定义 bash 状态脚本。脚本本地存储为真相来源，并上传到远端作为缓存；`Jobs(name=X)` 单任务模式自动运行该脚本。挂载时执行首次运行验证：超时则拒绝并清理；非零退出码被接受但附带提示。传入 `script=""` 表示清除。
+
+### 新增——Bash `run_in_background=True` 扩展
+
+- **`log_path`** 参数：为后台任务的 stdout+stderr 指定远端日志路径。默认为 `~/.cache/remote-mcp-<sid>-<id>.log`（与 `/tmp` 不同，跨重启持久）。父目录通过 `mkdir -p` 自动创建。
+- **`name`** 参数：供面板引用的人类可读任务别名。在活跃任务中必须唯一。默认为 `bg-<uuid12>`。
+- **结构化返回**：后台启动现在返回 `id / name / log_path / pid / started_at`，取代旧的四行提示模板。面板工具替代了原始的 `kill`/`Read` 模板。
+- **启动时同步 PID 确认**：若 exec 响应丢失（网络故障），工具立即回退到 SFTP 读取远端 pid 文件。两者均失败时，任务不进入面板，返回明确的 Error 及恢复指引。
+
+### 新增——本地优先的元数据存储
+
+- 面板元数据与状态脚本源文件存储在 MCP host 的本地文件系统 `~/.local/share/remote-mcp/jobpane/<sid>/<host>/` 中。远端只保留扁平命名的文件：`~/.cache/remote-mcp-<sid>-<id>-pid`、`~/.cache/remote-mcp-<sid>-<id>-status.sh` 及日志文件。
+- `<sid>` 由 `PPID + 父进程 start_time` 通过 `psutil` 派生，使得同一 Claude Code session 内 MCP server 重启后面板仍然保留。
+- ID 为 session+host 范围内通过 `fcntl` flock 分配的单调递增整数；归档后同名任务可以复用同一名称（新旧任务拥有不同 ID）。
+
+### 新增——基础设施
+
+- `exec_with_snapshot(conn, command, timeout) -> ExecResult` 辅助函数从 `_bash_foreground` 提取；所有面板工具与 Bash 共享。
+- `remote_mcp/jobs/` 包：`sid.py`、`paths.py`、`init.py`、`meta.py`、`state.py`、`scripts.py`、`constants.py`。
+- `RemoteInfo` 输出现在包含 `sid=<value>` 行。
+- `BASH_DESC` 已改写，将前台与后台模式实际生成的 shell 命令展开告知 agent。
+- 新增依赖 `psutil>=5.9`。
+
+### 已知限制
+
+面板状态不跨 Claude Code 重启保留（新 CC 进程 → 新 PPID → 新 sid → 旧面板目录在新 session 下不可见）。任务仍在远端运行。恢复方式：`Bash("ls ~/.cache/remote-mcp-*-pid")` 可列出所有 session 的远端 pid 文件；通过文件名中的旧 `sid` 值交叉比对。
+
 ## [0.2.2] — 2026-05-28
 
 ### 网络健壮性——统一行为契约

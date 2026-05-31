@@ -6,6 +6,47 @@ All notable changes to remote-mcp are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-05-31
+
+### Background task panel
+
+v0.3.0 introduces a first-class background task panel: a persistent, named, queryable registry of background jobs launched via `Bash(run_in_background=True)`. Agents can now name jobs, list their states, attach status scripts, kill them, and archive them — all without writing boilerplate `pgrep`/`tail`/`kill` chains. Design rationale and architecture in `docs/explanation/job-panel.md`.
+
+### Added — four new panel tools (total tool count 13 → 17)
+
+- **`Jobs(name=X | id=N | filter=F)`** — query the panel. List mode returns all active jobs with live state; single-task mode additionally runs an optional status script. Filter values: `stopped_unprocessed` (finished tasks awaiting result review), `stuck_kill` (tasks resisting kill after ≥ 3 attempts), `zombies` (tasks archived as given-up). State machine: `running` / `stopped` / `killed` / `kill_failed`. Terminal states (`stopped`, `killed`) are not re-observed after first confirmation — avoids PID-reuse false positives.
+
+- **`JobKill(name=X | id=N [, kill_cmd=...])`** — issue one kill command and verify liveness in a single packed exec (5 s timeout). Records the attempt in `kill_attempts[]` and updates state. Two-tier escalation warnings: L1 when a single task has ≥ 3 failed attempts; L2 when the host has ≥ 5 stuck tasks.
+
+- **`JobArchive(name=X | id=N [, as_zombie=True])`** — purely local operation (zero remote ops). Moves `<id>-meta.json` (and `<id>-status.sh` if present) to `archive/` (stopped/killed tasks) or `zombie/` (kill_failed tasks acknowledged as gave-up). Requires state to be terminal; guards against archiving running or unconfirmed tasks. Zombie escalation warning at ≥ 5 zombie count.
+
+- **`JobScript(name=X | id=N, script="...", timeout=N)`** — attach a custom bash status script to a job. Script is stored locally as the source of truth and uploaded to the remote as a cache; `Jobs(name=X)` single-task mode runs it automatically. First-run validation at attach time: timeout triggers rejection and cleanup; non-zero exit is accepted with a notice. Pass `script=""` to clear.
+
+### Added — Bash `run_in_background=True` extensions
+
+- **`log_path`** parameter: explicit remote log path for the background task's stdout+stderr. Defaults to `~/.cache/remote-mcp-<sid>-<id>.log` (persists across reboots unlike `/tmp`). Parent dirs auto-created via `mkdir -p`.
+- **`name`** parameter: human-readable job alias for panel reference. Must be unique among active jobs. Defaults to `bg-<uuid12>`.
+- **Structured return**: background launch now returns `id / name / log_path / pid / started_at` instead of the old four-line hint template. Panel tools replace the raw `kill`/`Read` templates.
+- **Synchronous PID confirmation at launch**: if the exec response is lost (network fault), the tool immediately falls back to SFTP-read of the remote pid file. If both fail, the task is NOT entered into the panel and an explicit Error is returned with recovery instructions.
+
+### Added — local-first metadata storage
+
+- Panel metadata and status script sources live on the MCP host at `~/.local/share/remote-mcp/jobpane/<sid>/<host>/`. Remote retains only flat-named files: `~/.cache/remote-mcp-<sid>-<id>-pid`, `~/.cache/remote-mcp-<sid>-<id>-status.sh`, and the log.
+- `<sid>` is derived from `PPID + parent-process start_time` via `psutil` so that MCP server restarts within the same Claude Code session preserve the panel.
+- IDs are session+host-scoped monotonically increasing integers allocated with `fcntl` flock; name reuse after archive is safe (old and new tasks get different IDs).
+
+### Added — infrastructure
+
+- `exec_with_snapshot(conn, command, timeout) -> ExecResult` helper extracted from `_bash_foreground`; shared by all panel tools and Bash.
+- `remote_mcp/jobs/` package: `sid.py`, `paths.py`, `init.py`, `meta.py`, `state.py`, `scripts.py`, `constants.py`.
+- `RemoteInfo` output now includes `sid=<value>`.
+- `BASH_DESC` rewritten to expose the actual shell wrap generated for both foreground and background modes.
+- `psutil>=5.9` added as a dependency.
+
+### Known limitation
+
+Panel state does not survive Claude Code restart (new CC process → new PPID → new sid → old panel directory is not visible). Tasks still run on remote. Recovery: `Bash("ls ~/.cache/remote-mcp-*-pid")` lists all remote pid files across sessions; cross-reference with old `sid` values visible in the file names.
+
 ## [0.2.2] — 2026-05-28
 
 ### Network robustness — unified behavioral contract

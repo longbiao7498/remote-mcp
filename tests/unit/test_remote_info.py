@@ -34,14 +34,16 @@ def test_remote_info_full_config_with_jump():
     assert "jump_host=bastion" in out
 
 
-def test_remote_info_output_is_6_lines():
-    """Output is exactly the 6 documented fields, one per line (cwd added in v0.2.0)."""
+def test_remote_info_output_is_7_lines():
+    """Output is exactly the 7 documented fields, one per line (cwd added in v0.2.0; sid added in v0.3.0)."""
     cfg = HostConfig(name="x", hostname="h", user="u")
     out = remote_info(_FakeConn(cfg))
     lines = [l for l in out.splitlines() if l.strip()]
-    assert len(lines) == 6
-    field_names = {l.split("=", 1)[0] for l in lines}
-    assert field_names == {"host", "user", "hostname", "port", "jump_host", "cwd"}
+    assert len(lines) == 7
+    # sid line uses ": " separator, others use "=" — check all expected fields present
+    assert any(l.startswith("sid: ") for l in lines)
+    eq_field_names = {l.split("=", 1)[0] for l in lines if "=" in l and not l.startswith("sid")}
+    assert eq_field_names == {"host", "user", "hostname", "port", "jump_host", "cwd"}
 
 
 def test_remote_info_no_ssh_calls_made():
@@ -87,3 +89,19 @@ def test_remote_info_cwd_when_none():
     )
     out = remote_info(conn)
     assert "cwd=unknown" in out
+
+
+def test_remote_info_includes_sid_line():
+    from remote_mcp.tools.remote_info import remote_info
+    from remote_mcp.config import HostConfig
+
+    class _StubConn:
+        def __init__(self):
+            self.config = HostConfig(
+                name="testhost", hostname="example.com",
+                port=22, user="alice", cwd="/home/alice",
+            )
+
+    out = remote_info(_StubConn())
+    import re
+    assert re.search(r"^sid: [0-9a-f]{12} \(source=", out, re.MULTILINE)
