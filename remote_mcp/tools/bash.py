@@ -1,9 +1,32 @@
 """Bash tool. See spec §5 (v0.2.0 non-persistent model)."""
-import re
+import re as _re
 import shlex
-import uuid
+import uuid as _uuid
+from typing import Optional
 
 from ..connection import SSHConnection, exec_with_snapshot
+
+
+_NAME_RE = _re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+_DESCRIPTION_MAX = 500
+
+
+def _validate_name(name: str) -> Optional[str]:
+    """Returns Error string if invalid, None if OK."""
+    if not _NAME_RE.fullmatch(name):
+        return f"Error: invalid job name '{name}': must match ^[A-Za-z0-9_.-]{{1,64}}$"
+    return None
+
+
+def _generate_name() -> str:
+    return f"bg-{_uuid.uuid4().hex[:12]}"
+
+
+def _truncate_description(desc: str):
+    """Returns (desc, truncated) tuple."""
+    if len(desc) <= _DESCRIPTION_MAX:
+        return desc, False
+    return desc[:_DESCRIPTION_MAX], True
 
 
 def bash(conn: SSHConnection, command: str,
@@ -89,7 +112,7 @@ def _bash_background(conn: SSHConnection, command: str) -> str:
     (cd <cwd> at the end of the snapshot) and user PATH/aliases are in
     effect for the background command. Matches foreground behavior.
     """
-    bg_uuid = uuid.uuid4().hex[:12]
+    bg_uuid = _uuid.uuid4().hex[:12]
     log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
     pidfile_path = f"/tmp/rmcp-bg-{bg_uuid}.pid"
 
@@ -131,7 +154,7 @@ def _bash_background(conn: SSHConnection, command: str) -> str:
             f"(use `cat /tmp/rmcp-bg-*.pid` then `kill -0 <pid>` to filter "
             f"live ones). Launch output: {output[:500]}"
         )
-    m = re.search(r"BG_PID=(\d+)", output)
+    m = _re.search(r"BG_PID=(\d+)", output)
     if not m:
         return (
             f"Error: background launch on {conn.config.name} may have started "
