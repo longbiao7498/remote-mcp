@@ -1,4 +1,7 @@
 """SSH connection lifecycle. See spec §5.1, §5.1.1."""
+import shlex
+import socket
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -12,6 +15,8 @@ class ExecResult:
     stdout: str
     stderr: str
     exit_code: int
+    timed_out: bool = False
+    elapsed_sec: float = 0.0
 
 
 class SSHConnectionError(Exception):
@@ -292,3 +297,91 @@ class SSHConnection:
             except Exception:
                 pass
             self._jump_client = None
+
+
+def exec_with_snapshot(conn: "SSHConnection", command: str, timeout: float) -> ExecResult:
+    """Run command on remote with snapshot sourced + </dev/null.
+
+    Wraps as: bash --noprofile --norc -c 'source <snapshot>; <command>' </dev/null
+
+    Drain stdout/stderr separately; on timeout, channel.close() and return
+    partial output with timed_out=True. Caller decides error formatting and
+    output capping.
+
+    Raises only on SSH-layer exceptions (paramiko.SSHException, OSError).
+    """
+    snapshot_path = getattr(conn, "_snapshot_path", None)
+    if snapshot_path:
+        inner = f"source {shlex.quote(snapshot_path)} 2>/dev/null || true; {command}"
+    else:
+        inner = command
+    wrapped = f"bash --noprofile --norc -c {shlex.quote(inner)} </dev/null"
+
+    client = conn._client
+    if client is None:
+        raise RuntimeError(f"SSH connection to {conn.config.name} not open")
+
+    started = time.time()
+    stdin, stdout, stderr = client.exec_command(wrapped, timeout=None)
+    channel = stdout.channel
+    channel.settimeout(0.2)
+
+    out_chunks: list = []
+    err_chunks: list = []
+    deadline = started + timeout
+    timed_out = False
+
+    while True:
+        if channel.exit_status_ready() and not channel.recv_ready() \
+                and not channel.recv_stderr_ready():
+            break
+        if time.time() > deadline:
+            timed_out = True
+            break
+        try:
+            data = channel.recv(4096)
+            if data:
+                out_chunks.append(data)
+                continue
+        except socket.timeout:
+            pass
+        try:
+            data = channel.recv_stderr(4096)
+            if data:
+                err_chunks.append(data)
+        except socket.timeout:
+            pass
+
+    # Drain whatever's left
+    try:
+        while channel.recv_ready():
+            out_chunks.append(channel.recv(4096))
+        while channel.recv_stderr_ready():
+            err_chunks.append(channel.recv_stderr(4096))
+    except Exception:
+        pass
+
+    if timed_out:
+        try:
+            channel.close()
+        except Exception:
+            pass
+        exit_code = -1
+    else:
+        exit_code = channel.recv_exit_status()
+        try:
+            channel.close()
+        except Exception:
+            pass
+
+    elapsed = time.time() - started
+    stdout_s = b"".join(out_chunks).decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "")
+    stderr_s = b"".join(err_chunks).decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "")
+
+    return ExecResult(
+        stdout=stdout_s,
+        stderr=stderr_s,
+        exit_code=exit_code,
+        timed_out=timed_out,
+        elapsed_sec=elapsed,
+    )
