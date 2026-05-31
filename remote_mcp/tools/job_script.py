@@ -61,6 +61,8 @@ def job_script_tool(conn, name: str = None, id: int = None,
     except Exception as e:
         # SSH error — remove what we just wrote
         remove_status_script_fully(conn, sid, host, id_)
+        meta["script_timeout"] = None
+        write_meta(sid, host, meta)
         return (
             f"Error: status script first-run on {host} failed: {e}. "
             f"Script has been removed; status script for '{display_name}' is now empty."
@@ -68,6 +70,8 @@ def job_script_tool(conn, name: str = None, id: int = None,
 
     if result.timed_out:
         remove_status_script_fully(conn, sid, host, id_)
+        meta["script_timeout"] = None
+        write_meta(sid, host, meta)
         return (
             f"Error: status script first-run timed out after {timeout}s on {host}. "
             f"Script has been removed (both local source and remote cache); "

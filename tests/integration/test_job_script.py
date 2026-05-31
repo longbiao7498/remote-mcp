@@ -74,6 +74,9 @@ def test_E5_clear_deletes_local_only(conn):
     out = job_script_tool(conn, name="e5", script="", timeout=5)
     assert "Status script cleared" in out
     assert not local_status_path(sid, "jstest", _id_of(conn, "e5")).exists()
+    sftp = conn.get_sftp()
+    # Remote cache should still be there (per spec §9.2.2)
+    sftp.stat(f".cache/remote-mcp-{sid}-{_id_of(conn, 'e5')}-status.sh")  # should not raise
 
 
 def test_E7_cache_miss_reuploads_from_local(conn):
@@ -85,6 +88,33 @@ def test_E7_cache_miss_reuploads_from_local(conn):
     sftp.remove(f".cache/remote-mcp-{sid}-{_id_of(conn, 'e7')}-status.sh")
     out = jobs_tool(conn, name="e7")
     assert "persists" in out
+
+
+def test_E8_timeout_in_replace_scenario_clears_meta(conn):
+    """Replacing an existing script with one that times out must reset meta.script_timeout
+    to None so subsequent Jobs calls don't try to run the deleted script (spec §9.2.1 + §14 C6)."""
+    import json
+    from remote_mcp.jobs.paths import local_meta_path
+
+    bash(conn, "sleep 60", run_in_background=True, name="e8")
+    # First attach a valid script
+    job_script_tool(conn, name="e8", script="echo first", timeout=5)
+    sid, _ = derive_sid()
+    id_ = _id_of(conn, "e8")
+    # Verify meta has script_timeout=5
+    meta = json.loads(local_meta_path(sid, "jstest", id_).read_text())
+    assert meta["script_timeout"] == 5
+    # Now replace with a script that times out
+    out = job_script_tool(conn, name="e8", script="sleep 30", timeout=2)
+    assert "Error: status script first-run timed out" in out
+    # Verify meta.script_timeout is back to None
+    meta = json.loads(local_meta_path(sid, "jstest", id_).read_text())
+    assert meta["script_timeout"] is None, (
+        f"After timeout-rejection, script_timeout should be None but is {meta['script_timeout']}"
+    )
+    # Jobs(name='e8') should now NOT try to run any script
+    out2 = jobs_tool(conn, name="e8")
+    assert '"status_script_output": null' in out2
 
 
 def _id_of(conn, job_name):
