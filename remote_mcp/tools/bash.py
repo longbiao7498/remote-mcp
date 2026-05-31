@@ -153,6 +153,13 @@ def _bash_background(conn: SSHConnection, command: str,
     if log_path is None:
         log_path = remote_default_log_path(sid, id_)
 
+    # Expand ~/ to absolute path before writing meta and returning to agent.
+    # Spec §5.3.2 step 4: agent-facing tools like Read reject ~-prefixed paths.
+    if log_path.startswith("~/"):
+        remote_home = getattr(conn, "_remote_home", None)
+        if remote_home is not None:
+            log_path = remote_home + log_path[1:]  # ~/X → <home>/X
+
     # 6. Write initial local meta (pid/started_at null; state=running)
     now_unix = int(_time.time())
     meta = {
@@ -243,7 +250,7 @@ def _bash_background(conn: SSHConnection, command: str,
 
     if pid is None:
         # Path B: synchronous SFTP fallback
-        pid, started_at, started_at_unix, fallback_used = _bg_sftp_fallback(
+        pid, started_at, started_at_unix, fallback_used, sftp_detail = _bg_sftp_fallback(
             conn, sid, id_,
         )
         if pid is None:
@@ -258,10 +265,11 @@ def _bash_background(conn: SSHConnection, command: str,
                 exec_detail = "wrap exec timed out"
             else:
                 exec_detail = "missing fields in echo response"
+            sftp_msg = sftp_detail if sftp_detail else "unknown SFTP error"
             return (
                 f"Error: background launch for '{name}' (id={id_}) on {host} "
                 f"could not be confirmed. exec response was lost ({exec_detail}) "
-                f"AND SFTP fallback fetch of pid file failed. The task has NOT "
+                f"AND SFTP fallback fetch of pid file failed ({sftp_msg}). The task has NOT "
                 f"been added to the panel.\n\n"
                 f"What this means:\n"
                 f"- If SFTP failed because the file is genuinely missing: the "
@@ -310,8 +318,8 @@ def _bash_background(conn: SSHConnection, command: str,
 def _bg_sftp_fallback(conn: SSHConnection, sid: str, id_: int):
     """Try to recover pid via SFTP read of remote pid file.
 
-    Returns (pid, started_at_iso, started_at_unix, True) on success;
-    (None, None, None, False) on any failure.
+    Returns (pid, started_at_iso, started_at_unix, True, None) on success;
+    (None, None, None, False, str(e)) on any failure (error_reason for B2 msg).
     """
     try:
         sftp = conn.get_sftp()
@@ -324,6 +332,6 @@ def _bg_sftp_fallback(conn: SSHConnection, sid: str, id_: int):
         pid = int(content)
         ts = int(attrs.st_mtime)
         iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-        return pid, iso, ts, True
-    except Exception:
-        return None, None, None, False
+        return pid, iso, ts, True, None
+    except Exception as e:
+        return None, None, None, False, str(e)

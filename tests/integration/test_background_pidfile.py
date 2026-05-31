@@ -91,7 +91,7 @@ def test_background_launch_failure_message_mentions_sftp_recovery(conn, monkeypa
     monkeypatch.setattr(bash_mod, "exec_with_snapshot", _fake)
     # Also patch SFTP fallback to simulate "file not found"
     monkeypatch.setattr(bash_mod, "_bg_sftp_fallback",
-                        lambda *a: (None, None, None, False))
+                        lambda *a: (None, None, None, False, "simulated SFTP failure"))
 
     out = bash_tool.bash(conn, "sleep 1", run_in_background=True)
     assert "could not be confirmed" in out

@@ -43,7 +43,7 @@ def test_A1_default_params_returns_structured_fields(conn):
     assert "Started background task." in out
     assert re.search(r"id: \d+", out)
     assert re.search(r"name: bg-[0-9a-f]{12}", out)
-    assert re.search(r"log_path: .*\.cache/remote-mcp-[0-9a-f]{12}-\d+\.log", out)
+    assert re.search(r"log_path: /.+/.cache/remote-mcp-[0-9a-f]{12}-\d+\.log", out)
     assert re.search(r"pid: \d+", out)
     assert re.search(r"started_at: \d{4}-\d{2}-\d{2}T", out)
 
@@ -102,6 +102,7 @@ def test_A6_local_meta_state_running_after_launch(conn, panel):
     meta = json.loads(meta_path.read_text())
     assert meta["pid"] > 0
     assert meta["state"] == "running"
+    assert not meta["log_path"].startswith("~/"), "log_path must be expanded to absolute per spec §5.3.2 step 4"
 
 
 def test_A7_response_lost_sftp_fallback_succeeds(conn, panel, monkeypatch):
@@ -142,7 +143,7 @@ def test_A8_response_lost_sftp_fallback_fails(conn, panel, monkeypatch):
     # Also patch SFTP fallback to simulate "file not found" (previous tests may have
     # left remote pid files for the same sid+id, since remote is shared across tests)
     def _failing_sftp_fallback(conn_arg, sid, id_):
-        return None, None, None, False
+        return None, None, None, False, "simulated SFTP failure"
     monkeypatch.setattr(bash_mod, "_bg_sftp_fallback", _failing_sftp_fallback)
     out = bash(conn, "sleep 60", run_in_background=True, name="a8")
     assert "could not be confirmed" in out
