@@ -1,5 +1,6 @@
 """MCP server: list_tools, call_tool, dispatch, reconnect WARNING. See spec §5.4."""
 import asyncio
+import sys
 from typing import Optional
 
 from mcp.server import Server
@@ -9,6 +10,8 @@ from mcp.types import TextContent, Tool
 from .config import RootConfig, load_config
 from .connection import SSHConnection
 from .schemas import ALL_TOOL_SCHEMAS, ALL_TOOL_DESCRIPTIONS
+from .jobs.sid import derive_sid
+from .jobs.init import init_panel
 
 from .tools import bash as bash_tool
 from .tools import edit as edit_tool
@@ -188,6 +191,18 @@ async def main(host_name: str, config_path: str, cwd_override: Optional[str] = N
     _conn._capture_snapshot()
     if _conn._snapshot_error is not None:
         _conn._startup_warning_pending = True
+    sid, sid_source = derive_sid()
+    try:
+        init_panel(sid, _conn.config.name)
+    except OSError as e:
+        from pathlib import Path
+        print(
+            f"Error: cannot init job panel at "
+            f"{Path.home()}/.local/share/remote-mcp/jobpane/{sid}/{_conn.config.name}/: "
+            f"{e}. Check filesystem permissions / disk space.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     try:
         async with stdio_server() as (read_stream, write_stream):
             await app.run(
