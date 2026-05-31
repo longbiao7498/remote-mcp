@@ -12,6 +12,7 @@ from .connection import SSHConnection
 from .schemas import ALL_TOOL_SCHEMAS, ALL_TOOL_DESCRIPTIONS
 from .jobs.sid import derive_sid
 from .jobs.init import init_panel
+from .jobs.paths import local_sid_host_dir
 
 from .tools import bash as bash_tool
 from .tools import edit as edit_tool
@@ -195,10 +196,9 @@ async def main(host_name: str, config_path: str, cwd_override: Optional[str] = N
     try:
         init_panel(sid, _conn.config.name)
     except OSError as e:
-        from pathlib import Path
+        bad_path = local_sid_host_dir(sid, _conn.config.name)
         print(
-            f"Error: cannot init job panel at "
-            f"{Path.home()}/.local/share/remote-mcp/jobpane/{sid}/{_conn.config.name}/: "
+            f"Error: cannot init job panel at {bad_path}/: "
             f"{e}. Check filesystem permissions / disk space.",
             file=sys.stderr,
         )
