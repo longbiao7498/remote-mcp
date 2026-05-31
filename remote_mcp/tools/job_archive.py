@@ -7,7 +7,6 @@ from ..jobs.meta import (
     find_meta_by_name_anywhere, find_meta_by_id_anywhere,
     list_zombie_metas, write_meta, move_to_archive, move_to_zombie,
 )
-from ..jobs.paths import local_zombie_dir, local_meta_path
 from ..jobs.constants import ZOMBIE_WARN_THRESHOLD
 
 
@@ -47,7 +46,7 @@ def job_archive_tool(conn, name: str = None, id: int = None,
         if state == "running":
             return (
                 f"Error: task '{display}' is in state 'running' per panel "
-                f"(last observed at <ts>={ts}). Archive is for tasks you have "
+                f"(last observed at {ts}). Archive is for tasks you have "
                 f"processed the results of. If you believe the task may have "
                 f"finished: call Jobs(name='{display}') to refresh state, "
                 f"then Read(log_path) to review results, then archive."
@@ -121,7 +120,7 @@ def job_archive_tool(conn, name: str = None, id: int = None,
     else:
         lines.append(f"Archived '{display}' (id={meta['id']}).")
         lines.append(f"  archived_at: {iso}")
-        lines.append(f"  log_path: {meta['log_path']}    (still readable; not deleted)")
+        lines.append(f"  log_path: {meta['log_path']}    (still readable)")
         lines.append("")
         lines.append(
             f"This name is now free for reuse by new launches (which will get a new id). "

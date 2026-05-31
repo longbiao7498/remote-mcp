@@ -52,10 +52,11 @@ def test_D1_archive_stopped(conn):
     bash(conn, "true", run_in_background=True, name="d1")
     time.sleep(1)
     jobs_tool(conn)  # refresh state
+    id_ = _id("d1")  # capture before archive — meta is in active
     out = job_archive_tool(conn, name="d1")
     assert "Archived 'd1'" in out
     sid, _ = derive_sid()
-    assert (local_archive_dir(sid, "jatest") / f"{_id('d1') or 1}-meta.json").exists() or True
+    assert (local_archive_dir(sid, "jatest") / f"{id_}-meta.json").exists()
 
 
 def test_D2_running_rejected(conn):
@@ -93,11 +94,12 @@ def test_D7_kill_failed_with_as_zombie(conn):
         run_in_background=True, name="d7",
     )
     job_kill_tool(conn, name="d7")
+    id_ = _id("d7")  # capture before archive — meta is in active
     out = job_archive_tool(conn, name="d7", as_zombie=True)
     assert "Archived 'd7'" in out
     assert "ZOMBIE" in out
     sid, _ = derive_sid()
-    assert (local_zombie_dir(sid, "jatest") / f"{_id('d7') or 1}-meta.json").exists() or True
+    assert (local_zombie_dir(sid, "jatest") / f"{id_}-meta.json").exists()
 
 
 def test_D4_archive_then_reuse_name(conn):
