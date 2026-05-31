@@ -1,11 +1,9 @@
 """Bash tool. See spec §5 (v0.2.0 non-persistent model)."""
 import re
 import shlex
-import socket
-import time
 import uuid
 
-from ..connection import SSHConnection
+from ..connection import SSHConnection, exec_with_snapshot
 
 
 def bash(conn: SSHConnection, command: str,
@@ -41,100 +39,27 @@ def bash(conn: SSHConnection, command: str,
     return _bash_foreground(conn, command, timeout)
 
 
-def _wrap(conn: SSHConnection, command: str) -> str:
-    """Wrap user command with snapshot source + /dev/null stdin."""
-    if conn._snapshot_path:
-        inner = f"source {shlex.quote(conn._snapshot_path)} 2>/dev/null || true; {command}"
-    else:
-        inner = command
-    quoted = shlex.quote(inner)
-    return f"bash --noprofile --norc -c {quoted} </dev/null"
-
-
 def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
-    """Per-call exec; drain stdout with timeout-aware partial collection."""
-    wrapped = _wrap(conn, command)
-    client = conn._client
-    if client is None:
-        return f"Error: SSH connection to {conn.config.name} is not open"
-    stdin, stdout, stderr = client.exec_command(wrapped, timeout=None)
-    channel = stdout.channel
+    """Per-call exec via exec_with_snapshot helper (§19)."""
+    try:
+        result = exec_with_snapshot(conn, command, timeout)
+    except Exception:
+        # Bubble SSH-layer exceptions for server.py's _with_retry / _with_reconnect_only.
+        raise
 
-    # Merge stderr → stdout by reading both with a small timeout per recv.
-    # Use channel.settimeout to make recv blocking-with-timeout (no busy-poll).
-    channel.settimeout(0.2)
+    output = result.stdout
+    if result.stderr:
+        output = output + result.stderr if output else result.stderr
 
-    out_chunks: list[bytes] = []
-    deadline = time.time() + timeout
-    timed_out = False
-    while True:
-        if channel.exit_status_ready() and not channel.recv_ready() \
-                and not channel.recv_stderr_ready():
-            break
-        if time.time() > deadline:
-            timed_out = True
-            break
-        try:
-            data = channel.recv(4096)
-            if data:
-                out_chunks.append(data)
-                continue
-        except socket.timeout:
-            pass  # poll timeout from channel.settimeout — fall through to stderr
-        # Don't catch broader exceptions: socket.error / EOFError / SSHException
-        # from a dead channel must propagate so server.py's _with_retry can
-        # trigger reconnect.
-        try:
-            data = channel.recv_stderr(4096)
-            if data:
-                out_chunks.append(data)
-        except socket.timeout:
-            pass  # poll timeout — loop continues
-
-    if timed_out:
-        # Drain whatever's left, then close
-        try:
-            while channel.recv_ready():
-                out_chunks.append(channel.recv(4096))
-            while channel.recv_stderr_ready():
-                out_chunks.append(channel.recv_stderr(4096))
-        except Exception:
-            pass
-        try:
-            channel.close()
-        except Exception:
-            pass
-        partial = b"".join(out_chunks).decode("utf-8", errors="replace")
-        partial = partial.replace("\r\n", "\n").replace("\r", "")
-        cap = conn.config.bash_output_cap
-        if len(partial) > cap:
-            partial = partial[:cap] + f"\n... [truncated to {cap} bytes]"
-        if partial:
-            return f"{partial}\n\nError: Command timed out after {timeout}s on {conn.config.name}"
+    cap = conn.config.bash_output_cap
+    if result.timed_out:
+        if len(output) > cap:
+            output = output[:cap] + f"\n... [truncated to {cap} bytes]"
+        if output:
+            return f"{output}\n\nError: Command timed out after {timeout}s on {conn.config.name}"
         return f"Error: Command timed out after {timeout}s on {conn.config.name}"
 
-    # Normal exit: ensure full drain
-    try:
-        while channel.recv_ready():
-            out_chunks.append(channel.recv(4096))
-        while channel.recv_stderr_ready():
-            out_chunks.append(channel.recv_stderr(4096))
-    except Exception:
-        pass
-    exit_code = channel.recv_exit_status()
-    output = b"".join(out_chunks).decode("utf-8", errors="replace")
-    output = output.replace("\r\n", "\n").replace("\r", "")
-    try:
-        channel.close()
-    except Exception:
-        pass
-
-    # exit_code == -1 means paramiko received EOF without an exit status —
-    # the channel was closed unexpectedly (transport died mid-command, e.g.
-    # laptop suspend, network drop). Surface this explicitly instead of the
-    # opaque "[Exit code: -1]"; agent can decide whether re-running the
-    # command is safe (non-idempotent commands shouldn't be auto-retried,
-    # which is why we don't raise to trigger _with_retry).
+    exit_code = result.exit_code
     if exit_code == -1 and not output:
         return (
             f"Error: SSH channel to {conn.config.name} closed unexpectedly "
@@ -147,7 +72,6 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
         output = output + f"\n[Exit code: {exit_code}]" if output \
             else f"[Exit code: {exit_code}]"
 
-    cap = conn.config.bash_output_cap
     if len(output) > cap:
         output = output[:cap] + f"\n... [truncated to {cap} bytes]"
     return output
