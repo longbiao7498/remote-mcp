@@ -86,9 +86,21 @@ BASH_SCHEMA = {
     "type": "object",
     "properties": {
         "command": {"type": "string"},
-        "description": {"type": "string", "default": ""},
+        "description": {
+            "type": "string",
+            "default": "",
+            "description": "Brief description of the command (CC native compat). When run_in_background=true, this is also stored as the task description in the panel (max 500 chars; longer is truncated with a notice in the return).",
+        },
         "timeout": {"type": "number", "default": 120},
         "run_in_background": {"type": "boolean", "default": False},
+        "log_path": {
+            "type": "string",
+            "description": "Optional. Absolute remote path for stdout+stderr redirection (background only). Defaults to ~/.cache/remote-mcp-<sid>-<id>.log (alongside pid file; persists across reboots unlike /tmp). Parent dirs auto-created via remote mkdir -p (one Bash exec). If a non-directory file exists at the parent path, Error returned and task not launched. If the target log file exists, it is overwritten (shell '>' semantics).",
+        },
+        "name": {
+            "type": "string",
+            "description": "Optional. Job alias for panel reference (background only). Defaults to 'bg-<uuid12>'. Must be unique among active (non-archived) jobs in the current session+host — collision returns Error. Pattern: [A-Za-z0-9_.-]+ length 1-64.",
+        },
     },
     "required": ["command"],
 }
