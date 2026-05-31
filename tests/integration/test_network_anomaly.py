@@ -81,39 +81,44 @@ def test_sftp_read_returns_error_when_proxy_drops_all(conn_via_proxy, flaky_prox
         srv._teardown_for_test()
 
 
-def test_background_bash_pidfile_recovers_when_response_lost(conn_via_proxy, flaky_proxy):
+def test_background_bash_pidfile_recovers_when_response_lost(
+        conn_via_proxy, flaky_proxy, tmp_path, monkeypatch):
     """Bug #3 actual failure window: response packet lost mid-flight.
 
-    Strategy: launch a background sleep under normal forwarding, then demonstrate
-    that the agent can recover the PID via cat /tmp/rmcp-bg-*.pid — simulating
-    the scenario where the original BG_PID response was never received by the
-    agent.
+    v0.3.0: background bash now uses local panel metadata. This test verifies the
+    remote pid file (at ~/.cache/remote-mcp-<sid>-<id>-pid) is readable as the
+    orphan-recovery mechanism, complementing the SFTP fallback in the launch path.
 
-    Note: timing the proxy to cut bytes mid-launch is too racy for a reliable
-    test (paramiko SSH framing means we cannot reliably cut at the exact byte
-    boundary where BG_PID= appears). Instead this test demonstrates the recovery
-    mechanism: even if the agent didn't see the original PID response, it can
-    recover by reading the pidfile directly. This proves the pidfile-before-echo
-    ordering guarantee (covered by test_background_pidfile_written_before_bg_pid_echo)
-    enables reliable orphan recovery end-to-end.
+    Note: timing the proxy to cut bytes mid-launch is too racy for a reliable test.
+    Instead, this test launches normally and demonstrates the recovery mechanism:
+    even without the original BG_PID echo, the remote pid file holds the PID.
+    The pidfile-before-echo ordering guarantee is covered by
+    test_background_pidfile_written_before_bg_pid_echo.
     """
+    # v0.3.0: must init panel before using background bash
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from remote_mcp.jobs.sid import derive_sid, reset_cache_for_test
+    from remote_mcp.jobs.init import init_panel
+    from remote_mcp.jobs.paths import remote_pid_path
+    reset_cache_for_test()
+    sid, _ = derive_sid()
+    init_panel(sid, "proxytest")
+
     # Sanity: snapshot capture during fixture setup should have worked
     assert conn_via_proxy._snapshot_path is not None
 
     out = bash_tool.bash(conn_via_proxy, "sleep 60", run_in_background=True)
-    pid_match = re.search(r"PID:\s*(\d+)", out)
-    log_match = re.search(r"Log:\s*/tmp/rmcp-bg-([a-f0-9]+)\.log", out)
-    assert pid_match and log_match, f"launch failed: {out!r}"
+    # v0.3.0 return format: "Started background task.\n  id: N\n  name: ...\n  log_path: ...\n  pid: N\n  started_at: ..."
+    assert "Started background task." in out, f"launch failed: {out!r}"
+    pid_match = re.search(r"pid:\s*(\d+)", out)
+    id_match = re.search(r"id:\s*(\d+)", out)
+    assert pid_match and id_match, f"could not parse pid/id from launch output: {out!r}"
     real_pid = pid_match.group(1)
-    uuid_str = log_match.group(1)
-    pidfile_path = f"/tmp/rmcp-bg-{uuid_str}.pid"
+    task_id = int(id_match.group(1))
 
-    # The launch succeeded normally — but we want to verify the same recovery
-    # mechanism is usable WITHOUT the launch response. So:
-    # - The pidfile is already on remote (we already have its uuid).
-    # - Reading it via a separate Bash call simulates "agent didn't see the
-    #   original PID response but knows there's a pidfile to inspect".
-    # - This proves the recovery path works end-to-end.
+    # v0.3.0 remote pid file: ~/.cache/remote-mcp-<sid>-<id>-pid
+    pidfile_path = remote_pid_path(sid, task_id)
+    # Verify pidfile is readable (the pidfile-before-echo ordering guarantee)
     recovery_out = bash_tool.bash(
         conn_via_proxy,
         f"cat {pidfile_path}",
@@ -123,8 +128,7 @@ def test_background_bash_pidfile_recovers_when_response_lost(conn_via_proxy, fla
         f"recovered PID {recovered_pid!r} != real PID {real_pid!r}"
     )
 
-    # Verify the remote process is actually alive (proving the pidfile points
-    # at a real process, not a stale entry)
+    # Verify the remote process is actually alive
     check_out = bash_tool.bash(
         conn_via_proxy,
         f"kill -0 {real_pid} && echo alive || echo dead",

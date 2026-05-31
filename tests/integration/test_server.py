@@ -22,7 +22,8 @@ def runtime_config(sshd_container, ssh_key, tmp_path):
     return root
 
 
-def test_list_tools_returns_thirteen(runtime_config):
+def test_list_tools_returns_seventeen(runtime_config):
+    """v0.3.0 added Jobs, JobKill, JobArchive, JobScript → 17 tools total."""
     srv._init_for_test(runtime_config, "test")
     try:
         tools = asyncio.run(srv.list_tools())
@@ -31,6 +32,7 @@ def test_list_tools_returns_thirteen(runtime_config):
             "Read", "Write", "Edit", "MultiEdit", "MultiRead", "FileStat",
             "Bash", "Glob", "Grep", "Feedback",
             "Upload", "Download", "RemoteInfo",
+            "Jobs", "JobKill", "JobArchive", "JobScript",
         }
     finally:
         srv._teardown_for_test()
