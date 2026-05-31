@@ -2,12 +2,12 @@ import json
 from remote_mcp.schemas import ALL_TOOL_SCHEMAS
 
 
-def test_all_fifteen_tools_have_schemas():
+def test_all_sixteen_tools_have_schemas():
     expected = {
         "Read", "Write", "Edit", "MultiEdit", "MultiRead", "FileStat",
         "Bash", "Glob", "Grep", "Feedback",
         "Upload", "Download", "RemoteInfo",
-        "Jobs", "JobScript",
+        "Jobs", "JobScript", "JobKill",
     }
     assert set(ALL_TOOL_SCHEMAS.keys()) == expected
 

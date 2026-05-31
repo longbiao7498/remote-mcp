@@ -370,3 +370,22 @@ JOBSCRIPT_DESC = (
 )
 ALL_TOOL_SCHEMAS["JobScript"] = JOBSCRIPT_SCHEMA
 ALL_TOOL_DESCRIPTIONS["JobScript"] = JOBSCRIPT_DESC
+
+JOBKILL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "kill_cmd": {"type": "string", "description": "Optional. Full shell command to execute on remote to kill the task. Defaults to 'kill -TERM -- -<pid>' (signals the process group via setsid). Examples: Slurm 'scancel 12345'; SIGKILL 'kill -KILL -- -<pid>'; graceful 'kill -USR1 <pid>'."},
+    },
+}
+JOBKILL_DESC = (
+    "Send a kill signal to a background task. Default command is "
+    "'kill -TERM -- -<pid>'. Provide kill_cmd for runtime-specific kills "
+    "(e.g. Slurm 'scancel 12345'). JobKill is a single attempt — repeat for "
+    "retries; the panel tracks kill_attempts. After 3 failed attempts, a NOTE "
+    "suggests JobArchive(as_zombie=True). After 5 stuck-kill tasks on this "
+    "host, a WARNING recommends pausing automation."
+)
+ALL_TOOL_SCHEMAS["JobKill"] = JOBKILL_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobKill"] = JOBKILL_DESC
