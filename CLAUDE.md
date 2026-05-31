@@ -8,13 +8,33 @@ For user-facing documentation organized along the Diátaxis framework (tutorial 
 
 ## Repository status
 
-**v0.2.0 implemented.** Stages A–C (non-persistent Bash, configurable cwd, unified output suffix) are complete. The authoritative design is `docs/superpowers/specs/2026-05-27-v0.2.0-non-persistent-bash.md` (v0.2.0 spec, incremental over v2). The v2 spec `docs/superpowers/specs/2026-05-26-remote-mcp-design.md` remains authoritative for everything not overridden by the v0.2.0 spec. New sessions working on this repo: **read both specs end-to-end** before proposing architecture changes — many decisions (snapshot mechanism, cwd policy, `~` two-layer semantics, unified suffix, SFTP-vs-exec split, the tool surface, background-bash via setsid) have explicit rationales and shouldn't be re-litigated without checking with the user.
+**v0.3.0 implemented.** Stages A–K complete. The authoritative designs are:
+- `docs/superpowers/specs/2026-05-26-remote-mcp-design.md` (v2, base)
+- `docs/superpowers/specs/2026-05-27-v0.2.0-non-persistent-bash.md` (v0.2.0 increment)
+- `docs/superpowers/specs/2026-05-28-network-robustness-design.md` (v0.2.2 increment)
+- `docs/superpowers/specs/2026-05-31-v0.3.0-job-panel.md` (v0.3.0 increment — job panel)
+
+New sessions: **read the relevant spec end-to-end** before proposing architecture changes. Many decisions have explicit rationales (snapshot mechanism, cwd policy, `~` two-layer semantics, unified suffix, SFTP-vs-exec split, local-first panel metadata, sid derivation, terminal-state observation skip, JobArchive-as-local-only) that shouldn't be re-litigated without checking with the user.
 
 ## What's being built
 
-`remote-mcp` is a **local** Python MCP server that exposes ten tools (Read, Write, Edit, MultiEdit, MultiRead, FileStat, Bash, Glob, Grep, Feedback) to Claude Code. Nine operate on a remote Linux host over SSH; the tenth (Feedback) writes to a local JSONL file for agent-driven dev-loop bookkeeping. The seven with Claude Code native counterparts (Read/Write/Edit/MultiEdit/Bash/Glob/Grep) match their schemas and output formats; MultiRead/FileStat are bandwidth-driven additions with no native equivalent; Feedback is a self-improvement channel — agent files bugs/feature ideas about remote-mcp itself, maintainer reads later to drive iteration. Hard constraints: remote host has SSH only (no agent install), transport is stdio MCP, SSH library is paramiko.
+`remote-mcp` is a **local** Python MCP server that exposes 17 tools to Claude Code. Thirteen operate on a remote Linux host over SSH; one (Feedback) writes to a local JSONL file; four (Jobs, JobKill, JobArchive, JobScript) manage the background task panel using local-first metadata. The seven with Claude Code native counterparts (Read/Write/Edit/MultiEdit/Bash/Glob/Grep) match their schemas and output formats. Hard constraints: remote host has SSH only (no agent install), transport is stdio MCP, SSH library is paramiko.
 
-The authoritative designs are `docs/superpowers/specs/2026-05-26-remote-mcp-design.md` (v2, base) and `docs/superpowers/specs/2026-05-27-v0.2.0-non-persistent-bash.md` (v0.2.0 increment). The Chinese-language `软件设计文档.md` at repo root is the prior v1 draft — kept for reference but **superseded by v2**.
+The authoritative designs are `docs/superpowers/specs/2026-05-26-remote-mcp-design.md` (v2, base) and the three incremental specs listed under Repository Status. The Chinese-language `软件设计文档.md` at repo root is the prior v1 draft — kept for reference but **superseded by v2**.
+
+### Job Panel (v0.3.0)
+
+v0.3.0 adds a background task panel: named, queryable background jobs launched via `Bash(run_in_background=True, name=..., log_path=...)`.
+
+**New tools**: `Jobs` (list/query with live state), `JobKill` (send kill + verify in one packed exec), `JobArchive` (local-only mv to archive/ or zombie/), `JobScript` (attach custom status script).
+
+**Local-first storage**: panel metadata lives at `~/.local/share/remote-mcp/jobpane/<sid>/<host>/` on the MCP host. Remote retains only flat-named files: pid, status.sh cache, and log. This keeps panel queries cheap (local IO only for list mode; at most one batched exec for state refresh).
+
+**State cache workflow**: Jobs and JobKill write observed state back to local `<id>-meta.json`. Terminal states (stopped, killed) are never re-observed — avoids PID-reuse false positives. JobArchive reads the cached state and performs zero remote ops.
+
+**Key limitation**: panel state does not survive Claude Code restart (new CC process → new PPID → new `sid`). Tasks still run on remote. Recovery: `Bash("ls ~/.cache/remote-mcp-*-pid")`.
+
+Design rationale: `docs/explanation/job-panel.md`.
 
 ```
 Claude Code  ──stdio MCP──▶  remote-mcp (local)  ──SSH/SFTP──▶  remote host
@@ -68,7 +88,7 @@ On SSH drop, auto-reconnect once. The snapshot is rebuilt on reconnect. Silent r
 - MultiEdit is atomic across its edits list — if any edit fails (0 matches or >1 matches without `replace_all`), no write occurs.
 - MultiRead batches N file reads into one `conn.exec`; chunks separated by `===FILE: <path>===` markers.
 - FileStat uses SFTP's native `stat`, NOT `Bash("stat ...")` — saves channel build, returns structured data.
-- Bash with `run_in_background=true` wraps the user command in `setsid nohup bash -c '...' > /tmp/rmcp-bg-<uuid>.log 2>&1 </dev/null &`. Returns PID + log path + 4 ready-to-paste command templates (status / read output / stop / force-stop). The `setsid` is **non-optional** — it detaches the background process from the exec channel's session so that closing the channel (timeout/reconnect) does not kill the background process.
+- Bash with `run_in_background=true` accepts `name` (job alias, unique among active panel tasks) and `log_path` (explicit remote log path). Wraps the command in `( setsid nohup bash --noprofile --norc -c 'source <snapshot>; ...' > <log_path> 2>&1 </dev/null & PID=$!; echo $PID > ~/.cache/remote-mcp-<sid>-<id>-pid; ... echo "BG_PID=$PID" ... )`. Returns `id / name / log_path / pid / started_at`. PID is confirmed synchronously — if exec response is lost, falls back to SFTP read of the pid file; if both fail, task is NOT entered into panel and Error is returned. The `setsid` is **non-optional** — detaches the background process from the exec channel's session.
 - Glob converts `**` patterns to `find -wholename` / `-path` to preserve path-segment semantics; not just `-name <basename>` (which was v1).
 - Grep supports `-A/-B/-C` context lines, `head_limit`, `output_mode` (content/files_with_matches/count). Bandwidth win: agent can get matches + surrounding context in one call instead of grep-then-multiple-reads.
 - Feedback appends a JSONL entry to `~/.local/share/remote-mcp/feedback.jsonl` (path overridable via top-level `feedback_path` in config). Single `write()` of a JSONL line is POSIX-atomic for typical sizes — multiple per-host processes can write the same file safely. Tool itself does not transmit anywhere; the file is the maintainer's data.
@@ -80,9 +100,22 @@ remote_mcp/
 ├── __main__.py        # argparse (--host, --cwd, --config), then asyncio.run(main(...))
 ├── server.py          # MCP Server, list_tools/call_tool, unified suffix + reconnect-warning dispatch
 ├── connection.py      # SSHConnection (compress=True, snapshot mgmt, cwd validation), HostConfig, ProxyJump
+│                      #   + exec_with_snapshot(conn, command, timeout) -> ExecResult helper
 ├── paths.py           # resolve_path(path, cwd) helper for all non-Bash tools
-└── tools/
-    ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py feedback.py
+├── schemas.py         # MCP tool schemas and descriptions
+├── tools/
+│   ├── read.py write.py edit.py multi_edit.py multi_read.py file_stat.py bash.py glob.py grep.py feedback.py
+│   ├── jobs.py job_kill.py job_archive.py job_script.py   # panel tools (v0.3.0)
+│   └── remote_info.py download.py upload.py
+└── jobs/              # panel subsystem (v0.3.0)
+    ├── __init__.py
+    ├── sid.py         # derive_sid() via PPID + parent start_time (psutil)
+    ├── paths.py       # local + remote path computation for panel files
+    ├── init.py        # startup mkdir + touch next_id + .id_lock
+    ├── meta.py        # read/write <id>-meta.json, fcntl flock id alloc, state writeback
+    ├── state.py       # batched kill -0 + date exec; 4-state machine derivation
+    ├── scripts.py     # status.sh local write + SFTP upload + first-run + timeout
+    └── constants.py   # KILL_FAIL_PER_TASK_THRESHOLD=3, STUCK_KILL_WARN_THRESHOLD=5, ZOMBIE_WARN_THRESHOLD=5
 CLAUDE.md.fragment.md  # shipped at repo root; users copy into the LOCAL project's CLAUDE.md (Claude Code reads it at startup — NOT a file on the remote host)
 ```
 
@@ -122,8 +155,10 @@ Don't "fix" these without checking with the user first — they're explicit scop
 - Grep `multiline` parameter intentionally unsupported (POSIX grep limitation; agent should use `awk`/`perl -0` via Bash for multi-line patterns).
 - Bash shell state (cwd, env vars, activated venvs) does NOT persist across calls — by design, matching Claude Code native Bash. Chain commands inline: `cd dir && cmd`, `VAR=val cmd`, `venv/bin/python script.py`.
 - Each Bash call pays a fresh bash process startup cost (~50-1000ms depending on RTT and remote FS speed). This is the accepted trade-off for matching CC native behavior. Mitigate by batching related commands with `&&`.
-- Background bash logs in `/tmp/rmcp-bg-*.log` are not auto-cleaned on server exit (deliberate — leave for post-mortem; `/tmp` reboot cleans).
-- Background bash PID reuse is a known low-probability hazard — agent should `kill -0 <pid>` before sending kill signals.
+- Background bash logs in `~/.cache/remote-mcp-<sid>-<id>.log` (default) are not auto-cleaned on server exit (deliberate — leave for post-mortem).
+- Background bash PID reuse is a known low-probability hazard — agent should `kill -0 <pid>` before sending kill signals. Panel tools mitigate this by not re-observing terminal-state tasks.
+- Panel state does not survive Claude Code restart (new CC process → new PPID → new `sid`). Recovery: `Bash("ls ~/.cache/remote-mcp-*-pid")`.
+- Panel metadata in `~/.local/share/remote-mcp/jobpane/<old_sid>/` from old sessions is not auto-cleaned. Manual `rm -rf` or future `JobsAdminCleanup` (not in v0.3.0).
 - `~` in tool path arguments is explicitly rejected — use absolute paths or paths relative to the configured cwd.
 - cwd sandboxing is not enforced — `../` can escape the configured cwd (same policy as CC native; security boundary is SSH user permissions).
 - Cross-host operations (e.g. copy file from prod to gpu) are NOT first-class — out of scope entirely. Use `Bash("scp prod:path gpu:path")` with user-arranged SSH trust.

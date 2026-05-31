@@ -24,10 +24,16 @@ This project operates a remote server through `mcp__remote-<host>__*` tools. The
 - **Shell state does not persist across calls.** Each Bash invocation is a fresh shell starting at the configured cwd. `cd`, `export`, `source venv/bin/activate` only take effect within that single call.
 - For multi-step operations that need shared state, chain commands in one call: `cd dir && cmd1 && cmd2`. To activate a venv and run a command: `venv/bin/python script.py` or `. venv/bin/activate && python script.py` — all in one Bash call.
 - For more complex logic, write a script (Write to upload → Bash to execute).
-- Long-running operations (build / test / install / large downloads): **use `Bash(command="...", run_in_background=true)`**. The agent isn't blocked.
-  - The tool's return prints the PID, log path, and 4 ready-to-paste command templates — **just copy them**.
-  - Use `Read(log_path, offset=<last_line+1>)` to incrementally pull the log. Don't use `Bash("cat log")`.
-  - When the task is done (or you've decided to abandon it), **always `Bash("kill -TERM -- -<pid>")` to clean up**.
+- Long-running operations (build / test / install / large downloads): **use `Bash(command="...", run_in_background=true, name="my-build", log_path="/home/user/my-build.log")`**. The agent isn't blocked.
+  - v0.3.0 panel workflow:
+    1. **Launch**: `Bash(run_in_background=True, name="X", log_path="/home/user/X.log", command="bash ~/X.sh")` — returns `id`, `pid`, `log_path`.
+    2. **Query state**: `Jobs(name="X")` — observes remote liveness, updates state cache. Or `Jobs()` to list all.
+    3. **Read log**: `Read("/home/user/X.log", offset=<last_line+1>)` — incremental poll, don't `Bash("cat log")`.
+    4. **Kill**: `JobKill(name="X")` — default `kill -TERM -- -<pgid>`; or `JobKill(name="X", kill_cmd="scancel 12345")` for Slurm.
+    5. **Archive when done**: once `Jobs(name="X")` shows `stopped` or `killed` and you've reviewed the log, call `JobArchive(name="X")` to free the name.
+    6. **For failed kills**: after ≥ 3 failed `JobKill` attempts, give up via `JobArchive(name="X", as_zombie=True)`.
+    7. **If panel disappears after CC restart**: `Bash("ls ~/.cache/remote-mcp-*-pid")` to find orphaned remote pids from old sessions.
+  - Optionally attach a status script for rich single-call status: `JobScript(name="X", script="...", timeout=10)` — runs on every `Jobs(name="X")` call.
 - For foreground Bash long operations, set a large explicit timeout (e.g. 600s); if it might take more than a few minutes, just use `run_in_background`.
 - Be careful with high-output commands: `find /`, `ls -R /`, `grep -r common-word /` will flood the bandwidth — think before you run.
 - For file transfers (binary or large): **prefer `Bash("scp <local> <user>@<host>:<remote>", run_in_background=true)`** over the `Upload` / `Download` tools. scp/rsync are non-blocking when launched in background and support any file size. The `Upload`/`Download` tools are a Windows fallback for users without scp in PATH, and they're capped at `transfer_size_cap` (default 100 MB). On Linux/macOS, scp wins on every axis.
@@ -72,8 +78,8 @@ remote-mcp ships a `Feedback` tool that lets you (the agent) record issues you h
 
 - **`[WARNING] ... snapshot ... missing AND re-upload failed`**: subsequent Bash calls will NOT load the user's PATH or aliases, and will start in `$HOME` rather than the configured cwd. Use absolute paths (e.g. `/home/user/miniconda3/bin/conda` instead of `conda`) and avoid relying on user aliases until the next MCP server restart.
 
-- **Background task launch failure with response lost**: the remote process may have started anyway. Recover orphan PIDs with:
+- **Background task launch failure with response lost**: the tool automatically falls back to an SFTP read of the remote pid file. If both fail, the task is NOT added to the panel and an Error is returned with recovery instructions. If you suspect an orphan remote process, use:
   ```bash
-  Bash("for pf in /tmp/rmcp-bg-*.pid 2>/dev/null; do pid=$(cat $pf 2>/dev/null); kill -0 $pid 2>/dev/null && echo \"$pid alive ($pf)\"; done")
+  Bash("ls ~/.cache/remote-mcp-*-pid 2>/dev/null")
+  Bash("for f in ~/.cache/remote-mcp-*-pid; do pid=$(cat $f); kill -0 $pid 2>/dev/null && echo \"$f: pid=$pid ALIVE\"; done")
   ```
-  Each live PID corresponds to a `/tmp/rmcp-bg-<uuid>.log` you can `Read` for output.
