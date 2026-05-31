@@ -20,6 +20,7 @@ from .tools import feedback as feedback_tool
 from .tools import file_stat as file_stat_tool
 from .tools import glob as glob_tool
 from .tools import grep as grep_tool
+from .tools import jobs as jobs_module
 from .tools import multi_edit as multi_edit_tool
 from .tools import multi_read as multi_read_tool
 from .tools import read as read_tool
@@ -136,6 +137,8 @@ def _raw_dispatch(name: str, args: dict) -> str:
         return download_tool.download(_conn, **args)
     if name == "RemoteInfo":
         return remote_info_tool.remote_info(_conn, **args)
+    if name == "Jobs":
+        return jobs_module.jobs_tool(_conn, **args)
     return f"Error: unknown tool: {name}"
 
 
