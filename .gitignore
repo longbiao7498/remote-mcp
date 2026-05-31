@@ -17,3 +17,7 @@ dist/
 
 # Personal scratch files
 TODO.md
+NOTE.md
+
+# Claude Code local config (per-user, not part of project)
+.claude/
