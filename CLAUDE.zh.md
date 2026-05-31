@@ -164,3 +164,4 @@ claude mcp add --scope user remote-<name> -- python -m remote_mcp --host <name> 
 - 跨主机操作（例如从 prod 复制文件到 gpu）**非**一类——完全超出范围。使用 `Bash("scp prod:path gpu:path")`，用户安排 SSH 信任。
 - 性能未针对 > 3 个并发主机调优（每个运行自己的 Python 进程）。Federation/plugin 形式是未来工作。
 - Feedback 文件不自动轮换；维护者手动存档。无上游遥测——纯本地开发循环。
+- 包含单引号的后台 bash 用户命令（例如 `Bash(run_in_background=True, command="echo 'hello'")`）在 setsid 子 shell 包装中可能产生错误的 shell 转义。命令体中包含字面单引号时，请使用双引号或通过 shell 变量转义。

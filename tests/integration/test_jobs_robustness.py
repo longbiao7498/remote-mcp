@@ -15,6 +15,8 @@ from remote_mcp.jobs.sid import derive_sid, reset_cache_for_test
 from remote_mcp.tools.bash import bash
 from remote_mcp.tools.jobs import jobs_tool
 from remote_mcp.tools.job_kill import job_kill_tool
+from remote_mcp.tools.job_script import job_script_tool
+from remote_mcp.jobs.paths import local_status_path
 
 
 @pytest.fixture
@@ -70,3 +72,42 @@ def test_G4_jobkill_writes_kill_requested_before_network_drop(conn_via_proxy, fl
     from remote_mcp.jobs.meta import find_meta_by_name_anywhere
     m, _ = find_meta_by_name_anywhere(sid, "proxytest", "g4")
     assert m["kill_requested_at_unix"] is not None
+
+
+def test_G3_jobs_single_status_script_timeout(conn_via_proxy, panel):
+    """Spec §17 G3: status.sh runs during Jobs(name=X) but hangs past timeout
+    → returns with status_script_output.error containing 'timed out'; other
+    fields (state, elapsed_sec) populated normally."""
+    sid, _ = derive_sid()
+    init_panel(sid, "proxytest")
+    # Launch a task
+    bash(conn_via_proxy, "sleep 100", run_in_background=True, name="g3")
+    # Refresh state to get state=running
+    jobs_tool(conn_via_proxy)
+    # Attach a status script that sleeps long; first-run with 5s timeout to pass
+    out_attach = job_script_tool(
+        conn_via_proxy, name="g3", script="echo ok", timeout=5,
+    )
+    assert "Status script attached" in out_attach
+    # Now manually edit the meta to make the script sleep longer than its timeout.
+    # We do this by replacing the script with one that sleeps.
+    # The script_timeout in meta is 5s; we'll write a script that sleeps 30s.
+    local_status_path(sid, "proxytest", _id(conn_via_proxy, "g3")).write_text("sleep 30")
+    # Re-upload to remote cache
+    from remote_mcp.jobs.scripts import set_status_script
+    set_status_script(conn_via_proxy, sid, "proxytest", _id(conn_via_proxy, "g3"), "sleep 30")
+    # Now Jobs(name='g3') will run the slow script with the 5s timeout from meta
+    out = jobs_tool(conn_via_proxy, name="g3")
+    # Status script section should reflect timeout, but other fields normal
+    assert '"error"' in out
+    assert "timed out" in out
+    assert '"state"' in out
+    assert '"elapsed_sec"' in out
+
+
+def _id(conn, name):
+    """Lookup task id by name within the proxytest panel."""
+    sid, _ = derive_sid()
+    from remote_mcp.jobs.meta import find_meta_by_name_anywhere
+    m, _ = find_meta_by_name_anywhere(sid, "proxytest", name)
+    return m["id"] if m else None

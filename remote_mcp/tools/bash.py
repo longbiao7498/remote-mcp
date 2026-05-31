@@ -232,6 +232,12 @@ def _bash_background(conn: SSHConnection, command: str,
     wresult = None
     wresult_err = ""
     try:
+        # Note: spec §19.4 says background wrap "is not in scope" for
+        # exec_with_snapshot. We use the helper anyway because (a) the outer
+        # shell needs the timeout + ExecResult handling, and (b) the snapshot
+        # source in the outer shell is harmless — the actual user command is
+        # executed in the detached setsid subshell which sources snapshot
+        # explicitly via the inner snap_clause. No double-source effect.
         wresult = exec_with_snapshot(conn, wrap, timeout=10.0)
     except Exception as e:
         wresult_err = str(e)

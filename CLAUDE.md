@@ -164,3 +164,4 @@ Don't "fix" these without checking with the user first — they're explicit scop
 - Cross-host operations (e.g. copy file from prod to gpu) are NOT first-class — out of scope entirely. Use `Bash("scp prod:path gpu:path")` with user-arranged SSH trust.
 - Performance not tuned for >3 simultaneous hosts (each runs its own Python process). Federation/plugin form is future work.
 - Feedback file is not auto-rotated; maintainer archives manually. No upstream telemetry — purely local dev loop.
+- Background bash user commands containing single quotes (e.g., `Bash(run_in_background=True, command="echo 'hello'")`) may produce malformed shell escaping in the setsid subshell wrap. Use double quotes or escape via shell variable for command bodies containing literal single quotes.

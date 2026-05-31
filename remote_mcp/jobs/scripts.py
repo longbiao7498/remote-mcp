@@ -1,6 +1,5 @@
 """status.sh local source + remote cache management (spec §9)."""
 import errno
-from pathlib import Path
 
 from ..connection import exec_with_snapshot, ExecResult
 from .paths import (

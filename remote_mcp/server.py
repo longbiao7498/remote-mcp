@@ -1,5 +1,4 @@
 """MCP server: list_tools, call_tool, dispatch, reconnect WARNING. See spec §5.4."""
-import asyncio
 import sys
 from typing import Optional
 

@@ -87,10 +87,10 @@ def job_script_tool(conn, name: str = None, id: int = None,
     note = ""
     if result.exit_code != 0:
         note = (
-            f" NOTE: first-run exited with non-zero code. The script is still "
-            f"attached (non-zero exit may be intentional, e.g. 'task not yet "
-            f"in expected phase'). Verify the output below matches your intent; "
-            f"call JobScript again with the same name to replace."
+            " NOTE: first-run exited with non-zero code. The script is still "
+            "attached (non-zero exit may be intentional, e.g. 'task not yet "
+            "in expected phase'). Verify the output below matches your intent; "
+            "call JobScript again with the same name to replace."
         )
 
     stdout_lines = result.stdout.splitlines() if result.stdout else []
