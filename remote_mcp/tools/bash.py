@@ -41,12 +41,12 @@ def bash(conn: SSHConnection, command: str,
 
 def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
     """Per-call exec via exec_with_snapshot helper (§19)."""
-    try:
-        result = exec_with_snapshot(conn, command, timeout)
-    except Exception:
-        # Bubble SSH-layer exceptions for server.py's _with_retry / _with_reconnect_only.
-        raise
+    # SSH-layer exceptions bubble up for server.py's _with_reconnect_only.
+    result = exec_with_snapshot(conn, command, timeout)
 
+    # v0.3.0 behavior change from v0.2.x: stdout is placed first, then stderr
+    # (concatenated, not interleaved). v0.2.x merged them in receive order.
+    # Separate buffers are required by spec §19.2 for panel/job-status consumers.
     output = result.stdout
     if result.stderr:
         output = output + result.stderr if output else result.stderr

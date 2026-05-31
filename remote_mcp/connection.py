@@ -308,6 +308,12 @@ def exec_with_snapshot(conn: "SSHConnection", command: str, timeout: float) -> E
     partial output with timed_out=True. Caller decides error formatting and
     output capping.
 
+    NOTE: stdout and stderr are drained into separate buffers using alternating
+    non-blocking reads. The interleaving order from the remote is NOT preserved —
+    callers that want a merged stream must concatenate the two fields themselves
+    (e.g. ``result.stdout + result.stderr``). This is intentional: separate buffers
+    are required by spec §19.2 for panel/job-status consumers.
+
     Raises only on SSH-layer exceptions (paramiko.SSHException, OSError).
     """
     snapshot_path = getattr(conn, "_snapshot_path", None)
@@ -319,15 +325,15 @@ def exec_with_snapshot(conn: "SSHConnection", command: str, timeout: float) -> E
 
     client = conn._client
     if client is None:
-        raise RuntimeError(f"SSH connection to {conn.config.name} not open")
+        raise paramiko.SSHException(f"SSH connection to {conn.config.name} not open")
 
     started = time.time()
     stdin, stdout, stderr = client.exec_command(wrapped, timeout=None)
     channel = stdout.channel
     channel.settimeout(0.2)
 
-    out_chunks: list = []
-    err_chunks: list = []
+    out_chunks: list[bytes] = []
+    err_chunks: list[bytes] = []
     deadline = started + timeout
     timed_out = False
 
@@ -374,6 +380,7 @@ def exec_with_snapshot(conn: "SSHConnection", command: str, timeout: float) -> E
         except Exception:
             pass
 
+    # Includes channel.recv_exit_status() round-trip; not strictly command wall time.
     elapsed = time.time() - started
     stdout_s = b"".join(out_chunks).decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "")
     stderr_s = b"".join(err_chunks).decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "")

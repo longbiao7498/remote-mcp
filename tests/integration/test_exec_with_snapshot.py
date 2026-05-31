@@ -49,6 +49,10 @@ def test_exec_with_snapshot_timeout(conn):
     r = exec_with_snapshot(conn, "sleep 10", timeout=1.0)
     assert r.timed_out is True
     assert r.exit_code == -1
+    # After timeout, channel was closed; subsequent calls on same conn should work
+    r2 = exec_with_snapshot(conn, "echo recovered", timeout=5.0)
+    assert r2.exit_code == 0
+    assert r2.stdout.strip() == "recovered"
 
 
 def test_exec_with_snapshot_stdin_closed(conn):

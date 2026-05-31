@@ -28,13 +28,24 @@ def test_bash_foreground_returns_stdout_only(conn):
     assert out.strip() == "hello"
 
 
-def test_bash_foreground_merges_stderr_into_output(conn):
+def test_bash_foreground_concatenates_stdout_then_stderr(conn):
+    """v0.3.0 behavior: stdout drained first, stderr appended after.
+    Differs from v0.2.x interleaved order — see exec_with_snapshot docstring."""
     out = bash(
-        conn, "echo out; echo err >&2; exit 0",
+        conn, "echo out1; echo err1 >&2; echo out2; echo err2 >&2; exit 0",
         run_in_background=False, timeout=10.0,
     )
-    assert "out" in out
-    assert "err" in out
+    # Both streams present
+    assert "out1" in out
+    assert "out2" in out
+    assert "err1" in out
+    assert "err2" in out
+    # stdout content precedes stderr content (concatenated, not interleaved)
+    stdout_end = max(out.rfind("out1"), out.rfind("out2"))
+    stderr_start = min(out.find("err1"), out.find("err2"))
+    assert stdout_end < stderr_start, (
+        f"Expected stdout to precede stderr in output, got: {out!r}"
+    )
 
 
 def test_bash_foreground_exit_code_suffix(conn):
