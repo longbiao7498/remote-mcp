@@ -350,3 +350,23 @@ JOBS_DESC = (
 
 ALL_TOOL_SCHEMAS["Jobs"] = JOBS_SCHEMA
 ALL_TOOL_DESCRIPTIONS["Jobs"] = JOBS_DESC
+
+JOBSCRIPT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "id": {"type": "integer"},
+        "script": {"type": "string", "description": "Bash script body. Stored locally + uploaded to remote cache (auto-reuploaded if missing). Pass empty string '' to clear (deletes local source only)."},
+        "timeout": {"type": "integer", "description": "Required. Seconds. Pick based on what your script does (simple pgrep+tail=5; large log=30; calling external services=60). Stored as script_timeout in meta; reused on every Jobs(name=X) call."},
+    },
+    "required": ["script", "timeout"],
+}
+JOBSCRIPT_DESC = (
+    "Attach a status script to a job. The script runs server-side on each "
+    "Jobs(name=X) single-task query and the output appears in "
+    "status_script_output. Source is stored locally; remote cache is "
+    "auto-managed. Pass script='' to clear. timeout is required — pick "
+    "based on what your script does (5-60 seconds typical)."
+)
+ALL_TOOL_SCHEMAS["JobScript"] = JOBSCRIPT_SCHEMA
+ALL_TOOL_DESCRIPTIONS["JobScript"] = JOBSCRIPT_DESC
