@@ -23,6 +23,7 @@ from .tools import grep as grep_tool
 from .tools import jobs as jobs_module
 from .tools.job_script import job_script_tool
 from .tools.job_kill import job_kill_tool
+from .tools.job_archive import job_archive_tool
 from .tools import multi_edit as multi_edit_tool
 from .tools import multi_read as multi_read_tool
 from .tools import read as read_tool
@@ -37,7 +38,7 @@ app = Server("remote-mcp")
 _conn: Optional[SSHConnection] = None
 _root_config: Optional[RootConfig] = None
 
-NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash", "JobScript", "JobKill"})
+NO_RETRY_TOOLS: frozenset = frozenset({"Edit", "MultiEdit", "Bash", "JobScript", "JobKill", "JobArchive"})
 
 
 @app.list_tools()
@@ -145,6 +146,8 @@ def _raw_dispatch(name: str, args: dict) -> str:
         return job_script_tool(_conn, **args)
     if name == "JobKill":
         return job_kill_tool(_conn, **args)
+    if name == "JobArchive":
+        return job_archive_tool(_conn, **args)
     return f"Error: unknown tool: {name}"
 
 
