@@ -1,4 +1,11 @@
-"""Local and remote path helpers for the job panel (spec §4)."""
+"""Local and remote path helpers for the job panel (spec §4).
+
+Remote path convention: `remote_*` functions return `~`-prefixed strings.
+- In bash exec commands (e.g. wrap commands, status script runs), use as-is —
+  the remote shell expands `~`.
+- For SFTP calls, strip the leading `~/` first (see `scripts._strip_tilde`);
+  paramiko SFTP does NOT expand `~`.
+"""
 import os
 from pathlib import Path
 
@@ -45,14 +52,18 @@ def local_id_lock_path(sid: str, host: str) -> Path:
 
 
 def remote_pid_path(sid: str, id_: int) -> str:
-    """Remote flat naming. Returns a `~`-prefixed path; remote bash will
-    expand on use (and SFTP paramiko handles ~ correctly when prepended)."""
+    """Remote flat naming. Returns a `~`-prefixed path. See module docstring
+    for bash-vs-SFTP usage convention."""
     return f"~/.cache/remote-mcp-{sid}-{id_}-pid"
 
 
 def remote_status_path(sid: str, id_: int) -> str:
+    """Returns a `~`-prefixed path. See module docstring for bash-vs-SFTP
+    usage convention."""
     return f"~/.cache/remote-mcp-{sid}-{id_}-status.sh"
 
 
 def remote_default_log_path(sid: str, id_: int) -> str:
+    """Returns a `~`-prefixed path. See module docstring for bash-vs-SFTP
+    usage convention."""
     return f"~/.cache/remote-mcp-{sid}-{id_}.log"

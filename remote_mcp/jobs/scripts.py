@@ -17,11 +17,12 @@ def _strip_tilde(path: str) -> str:
 
 
 def set_status_script(conn, sid: str, host: str, id_: int,
-                      script: str, timeout: int) -> None:
+                      script: str) -> None:
     """Write script body to local source and SFTP-upload to remote cache.
 
     Does NOT run the first-run validation — caller handles that separately
-    so it can also handle the timeout-cleanup path.
+    so it can also handle the timeout-cleanup path. Timeout is passed
+    directly to `run_status_script` by the caller (JobScript tool, Stage G).
     """
     # Local write
     local_path = local_status_path(sid, host, id_)

@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk *)",
+      "Bash(sed *)",
+      "Bash(grep *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(python *)",
+      "Bash(docker pull *)",
+      "Bash(pytest *)",
+      "Bash(ssh *)",
+      "Bash(python3 *)",
+      "Bash(netstat -tlnp)",
+      "Bash(git *)",
+      "Bash(bash -c 'printf '\\\\''%s'\\\\'' '\\\\''it'\\\\''\\\\'\\\\'''\\\\''s a $test \"quoted\" \\\\\\\\backslash'\\\\''')",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(bash *)",
+      "Bash(echo \"Script exited with: $?\")",
+      "Bash(git show *)",
+      "Read(//tmp/**)",
+      "Bash(xargs -0 perl -pi -e 's/claude mcp add --global /claude mcp add --scope user /g')",
+      "Bash(xargs -0 perl -pi -e 's/`--global`/`--scope user`/g')",
+      "Bash(perl -pi -e 's/The `--scope user` flag makes it available in every Claude Code project\\\\./The `--scope user` flag \\(vs the default `--scope local`\\) makes it available in every Claude Code project, not just the one you'\\\\''re currently in./g' docs/tutorial/first-remote-session.md)",
+      "Bash(perl -pi -e 's/`--scope user` 标志使其在所有 Claude Code 项目中均可用。/`--scope user` 标志（区别于默认的 `--scope local`）让它在所有 Claude Code 项目中可用，而不仅是当前项目。/g' docs/tutorial/first-remote-session.zh.md)",
+      "Bash(grep -rn \"^.*\\\\`/tools\\\\`\\\\|/tools\" --include=\"*.md\" .jj)",
+      "Bash(claude --version)",
+      "Bash(claude mcp *)",
+      "Bash(claude help *)",
+      "Bash(grep -rn \"^\\\\s*/tools\\\\b\\\\|\\\\`/tools\\\\`\" --include=\"*.md\" .)",
+      "Bash(pip install *)",
+      "Bash(wait)",
+      "Bash(grep -qE \"=====.*=====\\\\s*$\" /tmp/claude-501/-home-lb-workspace-remote-mcp/15a9f0e7-757f-4c86-af07-8cbcc5077dc6/tasks/btm8o2tcw.output)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:mcp-best-practice.github.io)",
+      "Bash(grep -v \"^[0-9]*:[ ]*-\\\\|^[0-9]*:[ ]*\\\\*\\\\*\\\\|^[0-9]*:[ ]*$\")",
+      "Bash(ping -c 1 -W 2 192.168.10.20)"
+    ]
+  }
+}

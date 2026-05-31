@@ -14,7 +14,7 @@ from remote_mcp.jobs.meta import (
     move_to_archive, move_to_zombie,
 )
 from remote_mcp.jobs.paths import (
-    local_meta_path, local_archive_dir, local_zombie_dir,
+    local_meta_path, local_archive_dir, local_zombie_dir, local_status_path,
 )
 
 
@@ -121,7 +121,6 @@ def test_move_to_archive_relocates_meta_and_status(panel):
     m = _sample_meta(id_=1, name="mv")
     write_meta(SID, HOST, m)
     # Drop a status.sh next to it
-    from remote_mcp.jobs.paths import local_status_path
     local_status_path(SID, HOST, 1).write_text("echo hi")
     move_to_archive(SID, HOST, 1)
     assert not local_meta_path(SID, HOST, 1).exists()

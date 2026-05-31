@@ -33,7 +33,7 @@ def allocate_id(sid: str, host: str) -> int:
     """Read next_id, increment by 1, write back. Atomic via fcntl flock."""
     lock_path = local_id_lock_path(sid, host)
     next_id_path = local_next_id_path(sid, host)
-    with open(lock_path, "w") as lock_fp:
+    with open(lock_path, "a") as lock_fp:
         fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
         try:
             current = int(next_id_path.read_text().strip() or "0")
@@ -71,7 +71,7 @@ def _path_for_location(sid: str, host: str, id_: int, location: str) -> Path:
     raise ValueError(f"unknown location: {location}")
 
 
-def _list_dir_metas(dir_: Path) -> list:
+def _list_dir_metas(dir_: Path) -> list[dict]:
     out = []
     if not dir_.is_dir():
         return out
@@ -82,24 +82,27 @@ def _list_dir_metas(dir_: Path) -> list:
         try:
             out.append(read_meta(child))
         except Exception:
-            continue  # corrupt meta: caller surfaces via errors[]
+            # Corrupt meta files are silently skipped here. The Jobs tool (Stage F)
+            # is expected to detect this gap and report missing metas in errors[].
+            # See spec §8.3 errors[] field.
+            continue
     return out
 
 
-def list_active_metas(sid: str, host: str) -> list:
+def list_active_metas(sid: str, host: str) -> list[dict]:
     return _list_dir_metas(local_sid_host_dir(sid, host))
 
 
-def list_archive_metas(sid: str, host: str) -> list:
+def list_archive_metas(sid: str, host: str) -> list[dict]:
     return _list_dir_metas(local_archive_dir(sid, host))
 
 
-def list_zombie_metas(sid: str, host: str) -> list:
+def list_zombie_metas(sid: str, host: str) -> list[dict]:
     return _list_dir_metas(local_zombie_dir(sid, host))
 
 
 def find_meta_by_id_anywhere(sid: str, host: str,
-                             id_: int) -> tuple:
+                             id_: int) -> tuple[Optional[dict], Optional[str]]:
     """Search active → archive → zombie. Returns (meta, location) or (None, None)."""
     for loc in ("active", "archive", "zombie"):
         path = _path_for_location(sid, host, id_, loc)
@@ -109,7 +112,7 @@ def find_meta_by_id_anywhere(sid: str, host: str,
 
 
 def find_meta_by_name_anywhere(sid: str, host: str,
-                               name: str) -> tuple:
+                               name: str) -> tuple[Optional[dict], Optional[str]]:
     """Search active → archive → zombie by name. Returns (meta, location) or (None, None)."""
     for loc, listing in (
         ("active", list_active_metas(sid, host)),
@@ -134,7 +137,7 @@ def _move(sid: str, host: str, id_: int, dest_dir: Path) -> None:
     dest_dir.mkdir(parents=True, exist_ok=True)
     meta_src = local_meta_path(sid, host, id_)
     if meta_src.exists():
-        shutil.move(str(meta_src), str(dest_dir / meta_src.name))
+        shutil.move(meta_src, dest_dir / meta_src.name)
     status_src = local_status_path(sid, host, id_)
     if status_src.exists():
-        shutil.move(str(status_src), str(dest_dir / status_src.name))
+        shutil.move(status_src, dest_dir / status_src.name)

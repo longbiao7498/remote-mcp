@@ -43,7 +43,7 @@ def conn(sshd_container, ssh_key, panel):
 
 
 def test_set_status_writes_local_and_uploads_remote(conn):
-    set_status_script(conn, SID, "scripthost", 1, "echo hello", timeout=5)
+    set_status_script(conn, SID, "scripthost", 1, "echo hello")
     assert local_status_path(SID, "scripthost", 1).read_text() == "echo hello"
     sftp = conn.get_sftp()
     remote = sftp.open(f".cache/remote-mcp-{SID}-1-status.sh", "r").read().decode()
@@ -51,14 +51,14 @@ def test_set_status_writes_local_and_uploads_remote(conn):
 
 
 def test_run_status_returns_exec_result(conn):
-    set_status_script(conn, SID, "scripthost", 1, "echo hi", timeout=5)
+    set_status_script(conn, SID, "scripthost", 1, "echo hi")
     result = run_status_script(conn, SID, "scripthost", 1, timeout=5)
     assert result.exit_code == 0
     assert result.stdout.strip() == "hi"
 
 
 def test_run_status_reuploads_if_cache_missing(conn):
-    set_status_script(conn, SID, "scripthost", 1, "echo persisted", timeout=5)
+    set_status_script(conn, SID, "scripthost", 1, "echo persisted")
     sftp = conn.get_sftp()
     sftp.remove(f".cache/remote-mcp-{SID}-1-status.sh")
     # Should re-upload from local + run
@@ -68,7 +68,7 @@ def test_run_status_reuploads_if_cache_missing(conn):
 
 
 def test_clear_status_removes_local_only(conn):
-    set_status_script(conn, SID, "scripthost", 1, "echo gone", timeout=5)
+    set_status_script(conn, SID, "scripthost", 1, "echo gone")
     clear_status_script(conn, SID, "scripthost", 1)
     assert not local_status_path(SID, "scripthost", 1).exists()
     sftp = conn.get_sftp()
