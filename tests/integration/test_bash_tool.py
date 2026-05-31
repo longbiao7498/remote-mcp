@@ -1,3 +1,4 @@
+import os
 import socket
 import threading
 import time as time_module
@@ -7,11 +8,20 @@ import pytest
 
 from remote_mcp.config import HostConfig
 from remote_mcp.connection import SSHConnection
+from remote_mcp.jobs.init import init_panel
+from remote_mcp.jobs.sid import derive_sid, reset_cache_for_test
 from remote_mcp.tools import bash as bash_tool
 
 
 @pytest.fixture
-def conn(sshd_container, ssh_key):
+def panel(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    reset_cache_for_test()
+    yield tmp_path
+
+
+@pytest.fixture
+def conn(sshd_container, ssh_key, panel):
     cfg = HostConfig(
         name="test",
         hostname=sshd_container["host"],
@@ -23,6 +33,8 @@ def conn(sshd_container, ssh_key):
     c = SSHConnection(cfg)
     c.connect()
     c._capture_snapshot()  # B2: server startup calls this; tests must too
+    sid, _ = derive_sid()
+    init_panel(sid, "test")
     yield c
     c.close()
 
@@ -97,17 +109,18 @@ import time
 def test_bash_background_returns_pid_and_log(conn):
     out = bash_tool.bash(conn, "sleep 30", run_in_background=True)
     assert "Started background task" in out
-    assert re.search(r"PID:\s*\d+", out)
-    assert re.search(r"Log:\s*/tmp/rmcp-bg-[a-f0-9]+\.log", out)
+    # v0.3.0: structured fields (id / name / log_path / pid / started_at)
+    assert re.search(r"pid: \d+", out)
+    assert re.search(r"log_path: .+", out)
     # Cleanup
-    m = re.search(r"PID:\s*(\d+)", out)
+    m = re.search(r"pid: (\d+)", out)
     pid = m.group(1)
     bash_tool.bash(conn, f"kill -KILL -- -{pid} 2>/dev/null; true")
 
 
 def test_bash_background_kill_via_process_group(conn):
     out = bash_tool.bash(conn, "sleep 100", run_in_background=True)
-    m = re.search(r"PID:\s*(\d+)", out)
+    m = re.search(r"pid: (\d+)", out)
     pid = m.group(1)
 
     # Verify alive
@@ -136,7 +149,7 @@ def test_bash_background_kills_children_via_group(conn):
     """Verify -PGID kill takes down spawned children."""
     cmd = "( sleep 200 & sleep 300 & wait )"
     out = bash_tool.bash(conn, cmd, run_in_background=True)
-    m = re.search(r"PID:\s*(\d+)", out)
+    m = re.search(r"pid: (\d+)", out)
     pid = m.group(1)
     time.sleep(0.5)
 
@@ -167,7 +180,9 @@ def test_bash_background_log_readable(conn):
         conn, "for i in 1 2 3; do echo line$i; sleep 0.1; done",
         run_in_background=True,
     )
-    log_match = re.search(r"Log:\s*(/tmp/rmcp-bg-[a-f0-9]+\.log)", out)
+    # v0.3.0: log_path is in structured output
+    log_match = re.search(r"log_path: (\S+)", out)
+    assert log_match, f"no log_path in output: {out!r}"
     log_path = log_match.group(1)
     time.sleep(1.5)
     # Read the log via Bash cat
@@ -178,7 +193,7 @@ def test_bash_background_log_readable(conn):
 
 
 @pytest.fixture
-def conn_with_cwd(sshd_container, ssh_key):
+def conn_with_cwd(sshd_container, ssh_key, panel):
     cfg = HostConfig(
         name="test",
         hostname=sshd_container["host"],
@@ -191,6 +206,8 @@ def conn_with_cwd(sshd_container, ssh_key):
     c = SSHConnection(cfg)
     c.connect()
     c._capture_snapshot()  # B2: server startup calls this; tests must too
+    sid, _ = derive_sid()
+    init_panel(sid, "test")
     yield c
     c.close()
 
@@ -211,8 +228,8 @@ def test_bash_background_uses_configured_cwd(conn_with_cwd):
     Without sourcing the snapshot, background runs at sshd default which
     silently breaks users who set --cwd."""
     out = bash_tool.bash(conn_with_cwd, "pwd > /tmp/rmcp-bg-cwd-test.out", run_in_background=True)
-    m = re.search(r"PID:\s*(\d+)", out)
-    assert m, f"no PID in output: {out}"
+    m = re.search(r"pid: (\d+)", out)
+    assert m, f"no pid in output: {out}"
     pid = m.group(1)
 
     # Wait for the background process to finish (it's a quick pwd)

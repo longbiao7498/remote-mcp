@@ -1,10 +1,19 @@
-"""Bash tool. See spec §5 (v0.2.0 non-persistent model)."""
+"""Bash tool. See spec §5 (v0.2.0 non-persistent model, extended in v0.3.0)."""
 import re as _re
 import shlex
+import time as _time
 import uuid as _uuid
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Tuple
 
 from ..connection import SSHConnection, exec_with_snapshot
+from ..jobs.sid import derive_sid
+from ..jobs.meta import allocate_id, write_meta, find_meta_by_name_anywhere
+from ..jobs.paths import (
+    local_meta_path,
+    remote_pid_path,
+    remote_default_log_path,
+)
 
 
 _NAME_RE = _re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -22,17 +31,19 @@ def _generate_name() -> str:
     return f"bg-{_uuid.uuid4().hex[:12]}"
 
 
-def _truncate_description(desc: str):
+def _truncate_description(desc: str) -> Tuple[str, bool]:
     """Returns (desc, truncated) tuple."""
     if len(desc) <= _DESCRIPTION_MAX:
         return desc, False
     return desc[:_DESCRIPTION_MAX], True
 
 
-def bash(conn: SSHConnection, command: str,
+def bash(conn: SSHConnection, command: str, *,
          run_in_background: bool = False,
          timeout: float = None,
-         description: str = "") -> str:
+         description: str = "",
+         log_path: str = None,
+         name: str = None) -> str:
     """
     Execute a shell command on the remote host (non-persistent per spec §5).
 
@@ -42,14 +53,16 @@ def bash(conn: SSHConnection, command: str,
     across calls (use `cd dir && cmd` or `VAR=v cmd` inline).
 
     Background (`run_in_background=True`): launches with `setsid nohup`.
-    Returns immediately with PID + log path + manipulation templates.
+    Returns structured fields: id, name, log_path, pid, started_at.
 
     Args:
         conn: established SSHConnection.
         command: user's shell command (verbatim).
         run_in_background: if True, fire-and-forget process group.
         timeout: foreground timeout (s); None → conn.config.bash_timeout_default.
-        description: schema-compat placeholder (unused).
+        description: task description (stored in panel for background tasks).
+        log_path: remote log path (background only; default ~/.cache/...).
+        name: job alias (background only; default bg-<uuid12>).
 
     Returns:
         Output string. Errors return `Error: ...` (never raises).
@@ -58,7 +71,8 @@ def bash(conn: SSHConnection, command: str,
     if timeout is None:
         timeout = float(conn.config.bash_timeout_default)
     if run_in_background:
-        return _bash_background(conn, command)
+        return _bash_background(conn, command, log_path=log_path,
+                                name=name, description=description)
     return _bash_foreground(conn, command, timeout)
 
 
@@ -100,76 +114,216 @@ def _bash_foreground(conn: SSHConnection, command: str, timeout: float) -> str:
     return output
 
 
-def _bash_background(conn: SSHConnection, command: str) -> str:
-    """Per-call exec; launches setsid+nohup so it survives channel close.
+def _bash_background(conn: SSHConnection, command: str,
+                     log_path: Optional[str],
+                     name: Optional[str],
+                     description: str) -> str:
+    """v0.3.0 background launch (spec §5.3).
 
-    bug #3 (v0.2.2): writes PID to /tmp/rmcp-bg-<uuid>.pid before echoing
-    BG_PID. If the response to this exec is lost (channel dies mid-call),
-    the agent can still recover PIDs via `cat /tmp/rmcp-bg-*.pid` because
-    the remote pidfile was written before the echo that would have been lost.
-
-    Sources the snapshot inside the background bash so the configured cwd
-    (cd <cwd> at the end of the snapshot) and user PATH/aliases are in
-    effect for the background command. Matches foreground behavior.
+    Writes local meta, decides log_path, does remote mkdir, runs new wrap with
+    started_at echoes + pid write, parses 3-line response, falls back to SFTP
+    read on response loss, deletes local meta if unable to confirm pid.
     """
-    bg_uuid = _uuid.uuid4().hex[:12]
-    log_path = f"/tmp/rmcp-bg-{bg_uuid}.log"
-    pidfile_path = f"/tmp/rmcp-bg-{bg_uuid}.pid"
+    host = conn.config.name
+    sid, _ = derive_sid()
 
-    if conn._snapshot_path:
-        inner = (
-            f"source {shlex.quote(conn._snapshot_path)} 2>/dev/null || true; "
-            f"{command}"
-        )
+    # 1. Validate name (or generate)
+    if name is None:
+        name = _generate_name()
     else:
-        inner = command
-    quoted_inner = shlex.quote(inner)
-    quoted_log = shlex.quote(log_path)
-    quoted_pidfile = shlex.quote(pidfile_path)
+        err = _validate_name(name)
+        if err:
+            return err
 
-    # bug #3: write PID to pidfile BEFORE echoing BG_PID — if echo response
-    # is lost, agent can find the PID via `cat /tmp/rmcp-bg-*.pid`.
-    wrap = (
-        f"( setsid nohup bash --noprofile --norc -c {quoted_inner} "
-        f"> {quoted_log} 2>&1 </dev/null & "
-        f"PID=$!; "
-        f"echo $PID > {quoted_pidfile}; "
-        f"echo \"BG_PID=$PID\" )"
-    )
-    client = conn._client
-    if client is None:
-        return f"Error: SSH connection to {conn.config.name} is not open"
-    stdin, stdout, stderr = client.exec_command(wrap, timeout=10.0)
-    output = stdout.read().decode("utf-8", errors="replace")
-    exit_code = stdout.channel.recv_exit_status()
+    # 2. Truncate description
+    desc, desc_truncated = _truncate_description(description)
+
+    # 3. Name uniqueness in active dir
+    found, location = find_meta_by_name_anywhere(sid, host, name)
+    if found is not None and location == "active":
+        return (
+            f"Error: job name '{name}' already in active panel; archive the "
+            f"old one with JobArchive(name='{name}') or pick a different name"
+        )
+
+    # 4. Allocate id
+    id_ = allocate_id(sid, host)
+
+    # 5. Decide log_path
+    if log_path is None:
+        log_path = remote_default_log_path(sid, id_)
+
+    # 6. Write initial local meta (pid/started_at null; state=running)
+    now_unix = int(_time.time())
+    meta = {
+        "id": id_, "name": name, "description": desc,
+        "command": command, "log_path": log_path, "host": host,
+        "pid": None, "started_at": None, "started_at_unix": None,
+        "state": "running", "state_at_unix": now_unix,
+        "kill_requested_at": None, "kill_requested_at_unix": None,
+        "kill_attempts": [],
+        "script_timeout": None,
+        "archived_at": None, "archived_at_unix": None, "zombie": False,
+    }
+    write_meta(sid, host, meta)
+
+    # 7. Remote mkdir log_path parent
+    # Use $(dirname ...) with tilde-safe path: replace ~/ with $HOME/ so bash
+    # expands it even inside the subshell (shlex.quote prevents ~ expansion).
+    mkdir_log = log_path.replace("~/", "$HOME/", 1) if log_path.startswith("~/") else shlex.quote(log_path)
+    mkdir_cmd = f"mkdir -p $(dirname {mkdir_log})"
     try:
-        stdout.channel.close()
-    except Exception:
-        pass
-    if exit_code != 0:
-        return (
-            f"Error: background launch on {conn.config.name} may have started "
-            f"but the response was lost. Inspect /tmp/rmcp-bg-*.pid on remote "
-            f"to recover PIDs of any orphan processes "
-            f"(use `cat /tmp/rmcp-bg-*.pid` then `kill -0 <pid>` to filter "
-            f"live ones). Launch output: {output[:500]}"
-        )
-    m = _re.search(r"BG_PID=(\d+)", output)
-    if not m:
-        return (
-            f"Error: background launch on {conn.config.name} may have started "
-            f"but the response was lost. Inspect /tmp/rmcp-bg-*.pid on remote "
-            f"to recover PIDs of any orphan processes "
-            f"(use `cat /tmp/rmcp-bg-*.pid` then `kill -0 <pid>` to filter "
-            f"live ones). Launch output: {output[:500]}"
-        )
-    pid = m.group(1)
-    return (
-        f"Started background task.\n"
-        f"  PID: {pid}\n"
-        f"  Log: {log_path}\n\n"
-        f"To check status:    Bash(\"kill -0 {pid} && echo running || echo done\")\n"
-        f"To read new output: Read(\"{log_path}\", offset=<last_line+1>)\n"
-        f"To stop gracefully: Bash(\"kill -TERM -- -{pid}\")\n"
-        f"To force stop:      Bash(\"kill -KILL -- -{pid}\")\n"
+        mkr = exec_with_snapshot(conn, mkdir_cmd, timeout=30.0)
+    except Exception as e:
+        try:
+            local_meta_path(sid, host, id_).unlink()
+        except Exception:
+            pass
+        return f"Error: creating log_path parent for '{name}' (id={id_}) on {host}: {e}"
+
+    if mkr.exit_code != 0:
+        try:
+            local_meta_path(sid, host, id_).unlink()
+        except Exception:
+            pass
+        stderr_lower = mkr.stderr.lower()
+        if "not a directory" in stderr_lower or "file exists" in stderr_lower:
+            parent = log_path.rsplit("/", 1)[0]
+            return (
+                f"Error: log_path parent '{parent}' exists but is not a "
+                f"directory; cannot mkdir -p"
+            )
+        return f"Error: cannot create log_path parent: {mkr.stderr.strip()}"
+
+    # 8. Exec wrap
+    snap_path = getattr(conn, "_snapshot_path", "") or ""
+    snap_clause = (
+        f"source {shlex.quote(snap_path)} 2>/dev/null || true\n    "
+        if snap_path else ""
     )
+    pid_remote = remote_pid_path(sid, id_)
+    # For log_path and pid_remote that start with ~/, replace ~/ with $HOME/
+    # so bash can expand them (shlex.quote would prevent ~ expansion).
+    def _shell_safe_path(p: str) -> str:
+        if p.startswith("~/"):
+            return "$HOME/" + p[2:]
+        return shlex.quote(p)
+
+    log_path_shell = _shell_safe_path(log_path)
+    pid_remote_shell = _shell_safe_path(pid_remote)
+    wrap = (
+        f"( setsid nohup bash --noprofile --norc -c '{snap_clause}{command}' "
+        f"> {log_path_shell} 2>&1 </dev/null & "
+        f"PID=$!; "
+        f"echo $PID > {pid_remote_shell}; "
+        f"STARTED_AT_UNIX=$(date +%s); "
+        f"STARTED_AT=$(date -u -Iseconds); "
+        f"echo \"BG_PID=$PID\"; "
+        f"echo \"STARTED_AT_UNIX=$STARTED_AT_UNIX\"; "
+        f"echo \"STARTED_AT=$STARTED_AT\" )"
+    )
+    wresult = None
+    wresult_err = ""
+    try:
+        wresult = exec_with_snapshot(conn, wrap, timeout=10.0)
+    except Exception as e:
+        wresult_err = str(e)
+
+    # 9. Parse response
+    pid, started_at, started_at_unix, fallback_used = None, None, None, False
+    if wresult is not None and not wresult.timed_out:
+        out = wresult.stdout
+        pm = _re.search(r"BG_PID=(\d+)", out)
+        sm = _re.search(r"STARTED_AT_UNIX=(\d+)", out)
+        sa = _re.search(r"STARTED_AT=(\S+)", out)
+        if pm and sm and sa:
+            pid = int(pm.group(1))
+            started_at_unix = int(sm.group(1))
+            started_at = sa.group(1)
+
+    if pid is None:
+        # Path B: synchronous SFTP fallback
+        pid, started_at, started_at_unix, fallback_used = _bg_sftp_fallback(
+            conn, sid, id_,
+        )
+        if pid is None:
+            # B2: clean up and Error
+            try:
+                local_meta_path(sid, host, id_).unlink()
+            except Exception:
+                pass
+            if wresult is None:
+                exec_detail = f"SSH exception: {wresult_err}"
+            elif wresult.timed_out:
+                exec_detail = "wrap exec timed out"
+            else:
+                exec_detail = "missing fields in echo response"
+            return (
+                f"Error: background launch for '{name}' (id={id_}) on {host} "
+                f"could not be confirmed. exec response was lost ({exec_detail}) "
+                f"AND SFTP fallback fetch of pid file failed. The task has NOT "
+                f"been added to the panel.\n\n"
+                f"What this means:\n"
+                f"- If SFTP failed because the file is genuinely missing: the "
+                f"wrap never ran (or never reached the pid-write step). Nothing "
+                f"to clean up.\n"
+                f"- If SFTP failed because of network/timeout: the wrap MAY "
+                f"have started and a remote process MAY be orphaned. Recover "
+                f"with:\n"
+                f"    Bash(\"test -f ~/.cache/remote-mcp-{sid}-{id_}-pid && "
+                f"cat ~/.cache/remote-mcp-{sid}-{id_}-pid\")\n"
+                f"  If that returns a pid, the orphan exists; kill it with\n"
+                f"    Bash(\"kill -TERM -- -<pid>\")\n"
+                f"  Then optionally Bash(\"rm ~/.cache/remote-mcp-{sid}-{id_}-pid\") "
+                f"to clean up the file.\n\n"
+                f"You may safely retry Bash(run_in_background=True, ...) with "
+                f"the same name (the failed entry has been removed from the panel)."
+            )
+
+    # 10. Backfill meta with confirmed pid/started_at
+    meta["pid"] = pid
+    meta["started_at"] = started_at
+    meta["started_at_unix"] = started_at_unix
+    write_meta(sid, host, meta)
+
+    # 11. Assemble return
+    lines = [
+        "Started background task.",
+        f"  id: {id_}",
+        f"  name: {name}",
+        f"  log_path: {log_path}",
+        f"  pid: {pid}",
+        f"  started_at: {started_at}",
+    ]
+    if fallback_used:
+        lines.append("")
+        lines.append(
+            "NOTE: started_at is approximated from the remote pid file's "
+            "mtime (the original echo was lost during launch); it may be "
+            "1-2 seconds later than the actual process start."
+        )
+    if desc_truncated:
+        lines.append("[description truncated to 500 chars]")
+    return "\n".join(lines)
+
+
+def _bg_sftp_fallback(conn: SSHConnection, sid: str, id_: int):
+    """Try to recover pid via SFTP read of remote pid file.
+
+    Returns (pid, started_at_iso, started_at_unix, True) on success;
+    (None, None, None, False) on any failure.
+    """
+    try:
+        sftp = conn.get_sftp()
+        remote_path = remote_pid_path(sid, id_)
+        # Strip leading ~/ for paramiko (SFTP does not expand ~)
+        sftp_path = remote_path[2:] if remote_path.startswith("~/") else remote_path
+        attrs = sftp.stat(sftp_path)
+        with sftp.open(sftp_path, "r") as f:
+            content = f.read().decode("utf-8").strip()
+        pid = int(content)
+        ts = int(attrs.st_mtime)
+        iso = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+        return pid, iso, ts, True
+    except Exception:
+        return None, None, None, False
